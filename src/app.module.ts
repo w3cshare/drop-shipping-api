@@ -7,6 +7,7 @@ import { WebhookModule } from './webhooks/webhook.module';
 import { ProductsModule } from './products/products.module';
 import { BillingModule } from './billing/billing.module';
 import { OrdersModule } from './orders/order.module';
+// import { RedisModule } from './database/redis/redis.module';
 import { ShopSessionEntity } from './database/entities/shop-session.entity';
 import { ShopOrderEntity } from './database/entities/order.entity';
 import { AppController } from './app.controller';
@@ -37,6 +38,16 @@ import { AppController } from './app.controller';
           logging: !isProduction,
           charset: 'utf8mb4',
           timezone: '+08:00',
+          // cache: {
+          //   type: "redis",
+          //   options: {
+          //     host: "192.168.1.5",
+          //     port: 6379,
+          //     username: 'default',
+          //     password: "6eHZOIXKBEu2Bfz3"
+          //   },
+          //   duration: 60000
+          // }
         };
       },
       inject: [ConfigService],
@@ -50,6 +61,7 @@ import { AppController } from './app.controller';
     ProductsModule,
     BillingModule,
     OrdersModule,
+    // RedisModule,
   ],
   controllers: [AppController],
 })
