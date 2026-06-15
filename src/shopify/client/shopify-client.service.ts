@@ -125,18 +125,18 @@ export class ShopifyClientService {
   }
 
   /** 获取产品列表（REST） */
-  async getProductsRest(shop: string, limit: number = 50): Promise<any[]> {
-    return this.adminApiRequest<any[]>(shop, `products.json?limit=${limit}`, 'GET');
+  async getProductsRest(shop: string, limit: number = 50): Promise<any> {
+    return this.adminApiRequest<any>(shop, 'products.json', 'GET', { limit });
   }
 
   /** 获取订单列表（REST） */
-  async getOrdersRest(shop: string, limit: number = 50): Promise<any[]> {
-    return this.adminApiRequest<any[]>(shop, `orders.json?limit=${limit}`, 'GET');
+  async getOrdersRest(shop: string, limit: number = 50): Promise<any> {
+    return this.adminApiRequest<any>(shop, 'orders.json', 'GET', { limit });
   }
 
   /** 获取客户列表（REST） */
-  async getCustomersRest(shop: string, limit: number = 50): Promise<any[]> {
-    return this.adminApiRequest<any[]>(shop, `customers.json?limit=${limit}`, 'GET');
+  async getCustomersRest(shop: string, limit: number = 50): Promise<any> {
+    return this.adminApiRequest<any>(shop, 'customers.json', 'GET', { limit });
   }
 
   /** 创建 Webhook */
@@ -151,8 +151,8 @@ export class ShopifyClientService {
   }
 
   /** 获取 Webhook 列表 */
-  async getWebhooks(shop: string): Promise<any[]> {
-    return this.adminApiRequest<any[]>(shop, 'webhooks.json', 'GET');
+  async getWebhooks(shop: string): Promise<any> {
+    return this.adminApiRequest<any>(shop, 'webhooks.json', 'GET');
   }
 
   /** 删除 Webhook */
