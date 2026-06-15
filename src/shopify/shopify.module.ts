@@ -14,6 +14,7 @@ import { ShopifyGraphqlService } from './graphql/graphql.service';
 import { ShopifyClientService } from './client/shopify-client.service';
 import { ShopSessionEntity } from '../database/entities/shop-session.entity';
 import { WebhookModule } from '../webhooks/webhook.module';
+import { OrderStatusService } from './config/order-status.service';
 
 /**
  * Shopify 核心模块。
@@ -35,12 +36,14 @@ import { WebhookModule } from '../webhooks/webhook.module';
     ShopifyAuthGuard,
     ShopifyGraphqlService,
     ShopifyClientService,
+    OrderStatusService,
   ],
   exports: [
     ShopifySessionService,
     ShopifyAuthGuard,
     ShopifyGraphqlService,
     ShopifyClientService,
+    OrderStatusService,
   ],
 })
 export class ShopifyModule implements OnModuleInit {

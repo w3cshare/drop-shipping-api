@@ -186,39 +186,155 @@ export class ShopifyGraphqlService {
     return this.query(shop, query, { input });
   }
 
-  /** 获取订单列表 */
-  async getOrders(shop: string, first: number = 10): Promise<any> {
-    const query = `
-      query GetOrders($first: Int!) {
-        orders(first: $first) {
+  /**
+   * 获取订单列表。
+   *
+   * 只查询 Shopify GraphQL Admin API 真实存在的字段，
+   * 返回结构会在 Controller 层再映射成中文 key 以便前端展示。
+   *
+   * @param shop 店铺域名
+   * @param first 返回数量
+   * @param filters.status 订单状态: open / closed / cancelled
+   * @param filters.financialStatus 财务状态: pending / authorized / paid / refunded 等
+   */
+  async getOrders(
+    shop: string,
+    first: number = 10,
+    filters: {
+      status?: string;
+      financialStatus?: string;
+    } = {},
+  ): Promise<{ shop: { name: string; myshopifyDomain?: string; currencyCode?: string }; orders: any }> {
+    const queryParts: string[] = [];
+    if (filters.status) queryParts.push(`status:${filters.status}`);
+    if (filters.financialStatus) queryParts.push(`financial_status:${filters.financialStatus}`);
+    const queryString = queryParts.length > 0 ? queryParts.join(' ') : undefined;
+
+    const gqlQuery = `
+      query GetOrders($first: Int!${queryString ? ', $query: String!' : ''}) {
+        shop {
+          name
+          myshopifyDomain
+          currencyCode
+        }
+        orders(first: $first${queryString ? ', query: $query' : ''}) {
           edges {
             node {
               id
               name
-              createdAt
-              totalPrice
-              totalPriceSet {
-                presentmentMoney {
-                  amount
-                  currencyCode
-                }
-                shopMoney {
-                  amount
-                  currencyCode
-                }
-              }
+              status
               displayFinancialStatus
               displayFulfillmentStatus
-              lineItems(first: 20) {
+              currencyCode
+              createdAt
+              updatedAt
+              processedAt
+              channelInformation {
+                channel {
+                  type
+                  name
+                }
+              }
+              customer {
+                firstName
+                lastName
+                displayName
+                email
+              }
+              shippingAddress {
+                firstName
+                lastName
+                address1
+                address2
+                city
+                province
+                country
+                countryCodeV2
+                zip
+                phone
+              }
+              billingAddress {
+                city
+                province
+                country
+                countryCodeV2
+              }
+              subtotalPriceSet {
+                shopMoney { amount currencyCode }
+              }
+              totalTaxSet {
+                shopMoney { amount currencyCode }
+              }
+              totalDiscountsSet {
+                shopMoney { amount currencyCode }
+              }
+              totalPriceSet {
+                shopMoney { amount currencyCode }
+              }
+              totalRefundedSet {
+                shopMoney { amount currencyCode }
+              }
+              totalShippingPriceSet {
+                shopMoney { amount currencyCode }
+              }
+              totalDutiesSet {
+                shopMoney { amount currencyCode }
+              }
+              currentTotalPriceSet {
+                shopMoney { amount currencyCode }
+              }
+              shippingLines(first: 10) {
+                edges {
+                  node {
+                    title
+                    carrier
+                    code
+                    priceSet { shopMoney { amount currencyCode } }
+                  }
+                }
+              }
+              lineItems(first: 50) {
                 edges {
                   node {
                     id
                     title
                     quantity
                     sku
+                    originalUnitPriceSet {
+                      shopMoney { amount currencyCode }
+                    }
+                    discountedUnitPriceSet {
+                      shopMoney { amount currencyCode }
+                    }
                     variant {
                       id
                       title
+                      sku
+                      image { url altText }
+                    }
+                  }
+                }
+              }
+              fulfillments(first: 10) {
+                edges {
+                  node {
+                    id
+                    status
+                    createdAt
+                    service
+                    trackingInfo(first: 50) {
+                      company
+                      number
+                      url
+                    }
+                    assignedLocation {
+                      name
+                      address1
+                      city
+                      countryCode
+                    }
+                    totalPriceSet {
+                      shopMoney { amount currencyCode }
                     }
                   }
                 }
@@ -229,7 +345,19 @@ export class ShopifyGraphqlService {
         }
       }
     `;
-    return this.query(shop, query, { first });
+
+    const variables: any = { first };
+    if (queryString) variables.query = queryString;
+
+    const result = await this.query<{
+      shop: { name: string; myshopifyDomain?: string; currencyCode?: string };
+      orders: any;
+    }>(shop, gqlQuery, variables);
+
+    return {
+      shop: result.shop,
+      orders: result.orders,
+    };
   }
 
   /** 获取客户列表（含 PII 字段） */
