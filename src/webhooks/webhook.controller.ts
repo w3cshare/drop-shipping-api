@@ -1,20 +1,32 @@
 import {
   Controller,
   Post,
+  Get,
   Req,
   Logger,
   HttpCode,
   HttpStatus,
+  Query,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { ShopifySessionService } from '../shopify/session/shopify-session.service';
 import { OrderService } from '../orders/order.service';
+import { WebhookQueueService } from './webhook-queue.service';
+import { SyncScheduler } from '../orders/sync-scheduler';
 
 /**
  * Webhook 处理控制器
- * 
+ *
  * 处理来自 Shopify 的 Webhook 事件
- * 
+ *
+ * 可靠性设计：
+ * 1. Webhook 收到后立即写入 MySQL 队列，立即返回 200
+ * 2. 后台任务异步处理队列中的事件
+ * 3. 失败自动重试（最多 3 次）
+ * 4. 定时补偿任务兜底：从 Shopify API 拉取缺失的订单
+ *
  * Shopify 2026年新规：必须配置 GDPR Webhook
  * - customers/redact: 客户请求删除数据
  * - shop/redact: 店铺请求删除数据
@@ -37,12 +49,15 @@ export class WebhookController {
   constructor(
     private readonly sessionService: ShopifySessionService,
     private readonly orderService: OrderService,
+    private readonly webhookQueueService: WebhookQueueService,
+    @Inject(forwardRef(() => SyncScheduler))
+    private readonly syncScheduler: SyncScheduler,
   ) {}
 
   /**
    * 处理订单创建 Webhook
-   * 
-   * 当 Shopify 创建新订单时触发，将订单数据保存到本地数据库
+   *
+   * 设计：立即入队 → 返回 200 → 后台异步处理
    */
   @Post('orders/create')
   @HttpCode(HttpStatus.OK)
@@ -50,25 +65,24 @@ export class WebhookController {
     try {
       const order = req.body;
       const shop = req.headers['x-shopify-shop-domain'] as string;
+      const shopifyEventId = req.headers['x-shopify-topic'] as string || 'orders/create';
 
-      this.logger.log(`Order created: ${order.id} (${order.name}) from ${shop}`);
+      this.logger.log(`Webhook received: orders/create from ${shop}, order=${order.name}`);
 
-      // 保存订单到数据库
-      await this.orderService.saveOrder(shop, order);
+      // 立即入队，立即返回 200
+      await this.webhookQueueService.enqueue(shop, 'orders/create', order, shopifyEventId);
 
-      this.logger.log(`Order ${order.id} saved successfully`);
-      return { success: true, orderId: order.id, message: 'Order saved to database' };
+      this.logger.debug(`Order ${order.id} queued for processing`);
+      return { success: true, queued: true };
     } catch (error: any) {
-      this.logger.error(`Failed to handle orders/create: ${error.message}`, error.stack);
-      // 返回 200 以避免 Shopify 重试
-      return { success: false, error: error.message };
+      this.logger.error(`Failed to enqueue orders/create: ${error.message}`, error.stack);
+      // 即使入队失败也返回 200，避免 Shopify 重试
+      return { success: false, queued: false, error: error.message };
     }
   }
 
   /**
    * 处理订单更新 Webhook
-   * 
-   * 当订单信息更新时触发，同步更新本地数据库
    */
   @Post('orders/updated')
   @HttpCode(HttpStatus.OK)
@@ -76,24 +90,21 @@ export class WebhookController {
     try {
       const order = req.body;
       const shop = req.headers['x-shopify-shop-domain'] as string;
+      const shopifyEventId = req.headers['x-shopify-topic'] as string || 'orders/updated';
 
-      this.logger.log(`Order updated: ${order.id} (${order.name}) from ${shop}`);
+      this.logger.log(`Webhook received: orders/updated from ${shop}, order=${order.name}`);
 
-      // 更新订单到数据库
-      await this.orderService.saveOrder(shop, order);
+      await this.webhookQueueService.enqueue(shop, 'orders/updated', order, shopifyEventId);
 
-      this.logger.log(`Order ${order.id} updated successfully`);
-      return { success: true, orderId: order.id, message: 'Order updated in database' };
+      return { success: true, queued: true };
     } catch (error: any) {
-      this.logger.error(`Failed to handle orders/updated: ${error.message}`, error.stack);
-      return { success: false, error: error.message };
+      this.logger.error(`Failed to enqueue orders/updated: ${error.message}`, error.stack);
+      return { success: false, queued: false, error: error.message };
     }
   }
 
   /**
    * 处理订单取消 Webhook
-   * 
-   * 当订单被取消时触发
    */
   @Post('orders/cancelled')
   @HttpCode(HttpStatus.OK)
@@ -101,24 +112,21 @@ export class WebhookController {
     try {
       const order = req.body;
       const shop = req.headers['x-shopify-shop-domain'] as string;
+      const shopifyEventId = req.headers['x-shopify-topic'] as string || 'orders/cancelled';
 
-      this.logger.log(`Order cancelled: ${order.id} (${order.name}) from ${shop}`);
+      this.logger.log(`Webhook received: orders/cancelled from ${shop}, order=${order.name}`);
 
-      // 更新订单状态
-      await this.orderService.saveOrder(shop, order);
+      await this.webhookQueueService.enqueue(shop, 'orders/cancelled', order, shopifyEventId);
 
-      this.logger.log(`Order ${order.id} marked as cancelled`);
-      return { success: true, orderId: order.id, message: 'Order marked as cancelled' };
+      return { success: true, queued: true };
     } catch (error: any) {
-      this.logger.error(`Failed to handle orders/cancelled: ${error.message}`, error.stack);
-      return { success: false, error: error.message };
+      this.logger.error(`Failed to enqueue orders/cancelled: ${error.message}`, error.stack);
+      return { success: false, queued: false, error: error.message };
     }
   }
 
   /**
    * 处理订单完成 Webhook
-   * 
-   * 当订单完成配送时触发
    */
   @Post('orders/fulfilled')
   @HttpCode(HttpStatus.OK)
@@ -126,17 +134,16 @@ export class WebhookController {
     try {
       const order = req.body;
       const shop = req.headers['x-shopify-shop-domain'] as string;
+      const shopifyEventId = req.headers['x-shopify-topic'] as string || 'orders/fulfilled';
 
-      this.logger.log(`Order fulfilled: ${order.id} (${order.name}) from ${shop}`);
+      this.logger.log(`Webhook received: orders/fulfilled from ${shop}, order=${order.name}`);
 
-      // 更新订单状态
-      await this.orderService.saveOrder(shop, order);
+      await this.webhookQueueService.enqueue(shop, 'orders/fulfilled', order, shopifyEventId);
 
-      this.logger.log(`Order ${order.id} marked as fulfilled`);
-      return { success: true, orderId: order.id, message: 'Order marked as fulfilled' };
+      return { success: true, queued: true };
     } catch (error: any) {
-      this.logger.error(`Failed to handle orders/fulfilled: ${error.message}`, error.stack);
-      return { success: false, error: error.message };
+      this.logger.error(`Failed to enqueue orders/fulfilled: ${error.message}`, error.stack);
+      return { success: false, queued: false, error: error.message };
     }
   }
 
@@ -150,10 +157,9 @@ export class WebhookController {
       const product = req.body;
       const shop = req.headers['x-shopify-shop-domain'] as string;
 
-      this.logger.log(`Product created: ${product.id} from ${shop}`);
+      this.logger.log(`Webhook received: products/create from ${shop}, product=${product.id}`);
 
-      // TODO: 实现产品创建处理逻辑
-
+      // 产品事件暂时直接记录日志，后续可扩展
       return { success: true };
     } catch (error: any) {
       this.logger.error(`Failed to handle products/create: ${error.message}`, error.stack);
@@ -171,9 +177,7 @@ export class WebhookController {
       const product = req.body;
       const shop = req.headers['x-shopify-shop-domain'] as string;
 
-      this.logger.log(`Product updated: ${product.id} from ${shop}`);
-
-      // TODO: 实现产品更新处理逻辑
+      this.logger.log(`Webhook received: products/update from ${shop}, product=${product.id}`);
 
       return { success: true };
     } catch (error: any) {
@@ -192,9 +196,7 @@ export class WebhookController {
       const product = req.body;
       const shop = req.headers['x-shopify-shop-domain'] as string;
 
-      this.logger.log(`Product deleted: ${product.id} from ${shop}`);
-
-      // TODO: 实现产品删除处理逻辑
+      this.logger.log(`Webhook received: products/delete from ${shop}, product=${product.id}`);
 
       return { success: true };
     } catch (error: any) {
@@ -205,7 +207,7 @@ export class WebhookController {
 
   /**
    * 处理应用卸载 Webhook
-   * 
+   *
    * 重要：必须清理所有店铺相关数据
    * - 删除数据库中的会话记录
    * - 删除任何存储的店铺数据
@@ -219,7 +221,7 @@ export class WebhookController {
     try {
       const shop = req.headers['x-shopify-shop-domain'] as string;
 
-      this.logger.log(`App uninstalled from ${shop}`);
+      this.logger.log(`Webhook received: app/uninstalled from ${shop}`);
 
       // 清理店铺的所有会话数据
       await this.sessionService.deleteSessionsByShop(shop);
@@ -249,7 +251,7 @@ export class WebhookController {
       const payload = req.body;
       const shop = req.headers['x-shopify-shop-domain'] as string;
 
-      this.logger.log(`Customer data request from ${shop}: ${payload.customer?.id}`);
+      this.logger.log(`Webhook received: customers/data_request from ${shop}`);
 
       // TODO: 收集并返回客户数据
       // 必须包含应用存储的所有客户相关数据
@@ -274,7 +276,7 @@ export class WebhookController {
       const payload = req.body;
       const shop = req.headers['x-shopify-shop-domain'] as string;
 
-      this.logger.log(`Customer redact request from ${shop}: ${payload.customer?.id}`);
+      this.logger.log(`Webhook received: customers/redact from ${shop}`);
 
       // TODO: 删除所有客户相关数据
       // 包括：订单记录、浏览历史、个人偏好等
@@ -299,7 +301,7 @@ export class WebhookController {
       const payload = req.body;
       const shop = req.headers['x-shopify-shop-domain'] as string;
 
-      this.logger.log(`Shop redact request from ${shop}`);
+      this.logger.log(`Webhook received: shop/redact from ${shop}`);
 
       // 清理店铺的所有数据
       await this.sessionService.deleteSessionsByShop(shop);
@@ -312,5 +314,51 @@ export class WebhookController {
       this.logger.error(`Failed to handle shop/redact: ${error.message}`, error.stack);
       return { success: false, error: error.message };
     }
+  }
+
+  // ========== 管理接口 ==========
+
+  /**
+   * 获取队列统计信息
+   */
+  @Get('queue/stats')
+  async getQueueStats() {
+    const stats = await this.webhookQueueService.getQueueStats();
+    return {
+      success: true,
+      ...stats,
+    };
+  }
+
+  /**
+   * 手动触发同步（用于测试或管理接口）
+   */
+  @Get('sync/orders')
+  async manualSyncOrders(@Query('shop') shop?: string) {
+    try {
+      const results = await this.syncScheduler.manualSync(shop);
+      return {
+        success: true,
+        results,
+      };
+    } catch (error: any) {
+      this.logger.error(`Manual sync failed: ${error.message}`, error.stack);
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
+  }
+
+  /**
+   * 手动清理过期事件
+   */
+  @Get('queue/cleanup')
+  async cleanupOldEvents() {
+    const cleaned = await this.webhookQueueService.cleanupOldEvents(7);
+    return {
+      success: true,
+      cleaned,
+    };
   }
 }

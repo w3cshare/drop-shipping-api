@@ -40,9 +40,9 @@ export class OrderService {
       order.fulfillmentStatus = orderData.fulfillment_status || orderData.fulfillmentStatus || 'unfulfilled';
 
       // 金额信息（JSON 格式存储）
-      order.totalPriceSet = JSON.stringify(orderData.total_price_set || orderData.totalPriceSet || {});
+      order.totalPriceSet = JSON.stringify(orderData.total_price_set || orderData.totalPriceSet || orderData.currentTotalPriceSet || {});
       order.subtotalPriceSet = JSON.stringify(orderData.subtotal_price_set || orderData.subtotalPriceSet || {});
-      order.shippingPriceSet = JSON.stringify(orderData.shipping_price_set || orderData.shippingPriceSet || {});
+      order.shippingPriceSet = JSON.stringify(orderData.shipping_price_set || orderData.shippingPriceSet || orderData.totalShippingPriceSet || {});
       order.totalTaxSet = JSON.stringify(orderData.total_tax_set || orderData.totalTaxSet || {});
 
       // 时间信息

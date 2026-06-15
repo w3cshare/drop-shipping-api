@@ -48,8 +48,23 @@ export class ShopifyGraphqlService {
 
       return (await client.request(query, { variables })) as T;
     } catch (error: any) {
+      // 检测是否为网络连接错误（临时网络问题）
+      const isNetworkError = this.isNetworkError(error);
+      
       // 检测是否为 401/403 token 过期错误
       const isAuthError = this.isAuthError(error);
+
+      // 网络错误重试（最多 2 次）
+      if (isNetworkError && _retryAttempt < 2) {
+        const delay = Math.pow(2, _retryAttempt) * 1000; // 1s, 2s
+        this.logger.warn(
+          `GraphQL network error for ${shop} (attempt ${_retryAttempt + 1}), ` +
+            `retrying after ${delay}ms: ${error.message}`
+        );
+        
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return this.query<T>(shop, query, variables, _retryAttempt + 1);
+      }
 
       if (isAuthError && _retryAttempt === 0) {
         this.logger.warn(
@@ -75,6 +90,32 @@ export class ShopifyGraphqlService {
       );
       throw error;
     }
+  }
+
+  /**
+   * 判断错误是否为网络连接错误。
+   */
+  private isNetworkError(error: any): boolean {
+    const msg = (error?.message || '').toLowerCase();
+    
+    // 检查常见网络错误消息
+    if (msg.includes('socket') || msg.includes('tls') || 
+        msg.includes('econnreset') || msg.includes('econnrefused') ||
+        msg.includes('timeout') || msg.includes('network') ||
+        msg.includes('disconnected') || msg.includes('etimedout')) {
+      return true;
+    }
+    
+    // 检查错误码
+    if (error?.code) {
+      const code = String(error.code).toLowerCase();
+      if (code.includes('econn') || code.includes('etimed') || 
+          code.includes('eaddr') || code.includes('ssl')) {
+        return true;
+      }
+    }
+    
+    return false;
   }
 
   /**
