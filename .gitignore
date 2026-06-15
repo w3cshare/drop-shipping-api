@@ -1,6 +1,6 @@
 node_modules/
 dist/
-.env
+# .env
 .env.local
 .env.development
 .env.production
@@ -9,7 +9,7 @@ logs/
 coverage/
 .nest/
 .idea/
-.vscode/
+# .vscode/
 *.swp
 *.swo
 .DS_Store
