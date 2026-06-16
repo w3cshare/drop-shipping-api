@@ -18,7 +18,7 @@ import { ShopifyClientService } from './shopify-client.service';
  *
  * 需要通过 @UseGuards(ShopifyAuthGuard) 验证授权
  */
-@Controller('api-rest')
+@Controller('api2/shopify')
 @UseGuards(ShopifyAuthGuard)
 export class ShopifyClientController {
   private readonly logger = new Logger(ShopifyClientController.name);

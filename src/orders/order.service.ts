@@ -2,6 +2,13 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Brackets } from 'typeorm';
 import { ShopOrderEntity } from '../database/entities/order.entity';
+import {
+  OrderFiltersDto,
+  PaginatedOrdersResponseDto,
+  OrderStatsDto,
+  OrderResponseDto,
+  safeParseJson,
+} from './dto/order.dto';
 
 /**
  * 订单服务
@@ -181,15 +188,8 @@ export class OrderService {
     shop: string,
     page: number = 1,
     pageSize: number = 20,
-    filters: {
-      status?: string;
-      financialStatus?: string;
-      fulfillmentStatus?: string;
-      startDate?: Date;
-      endDate?: Date;
-      keyword?: string;
-    } = {},
-  ): Promise<{ items: ShopOrderEntity[]; total: number; page: number; pageSize: number }> {
+    filters: OrderFiltersDto = {},
+  ): Promise<PaginatedOrdersResponseDto> {
     const safePage = Math.max(1, page);
     const safePageSize = Math.min(100, Math.max(1, pageSize));
     const offset = (safePage - 1) * safePageSize;
@@ -226,7 +226,12 @@ export class OrderService {
       .skip(offset)
       .getManyAndCount();
 
-    return { items, total, page: safePage, pageSize: safePageSize };
+    return {
+      items: items.map((o) => this.toResponseDto(o)),
+      total,
+      page: safePage,
+      pageSize: safePageSize,
+    };
   }
 
   /**
@@ -242,12 +247,7 @@ export class OrderService {
   async getOrderStats(
     shop: string,
     filters: { startDate?: Date; endDate?: Date } = {},
-  ): Promise<{
-    totalCount: number;
-    totalAmount: string;
-    byStatus: Record<string, number>;
-    byFinancialStatus: Record<string, number>;
-  }> {
+  ): Promise<OrderStatsDto> {
     const query = this.orderRepository.createQueryBuilder('o').where('o.shop = :shop', { shop });
     if (filters.startDate) query.andWhere('o.created_time >= :startDate', { startDate: filters.startDate });
     if (filters.endDate) query.andWhere('o.created_time <= :endDate', { endDate: filters.endDate });
@@ -282,16 +282,7 @@ export class OrderService {
    * 将数据库实体转换为对外响应 DTO
    * 主要工作：解析 text 字段中存储的 JSON
    */
-  toResponseDto(order: ShopOrderEntity): Record<string, any> {
-    const safeParse = (raw?: string) => {
-      if (!raw) return null;
-      try {
-        return JSON.parse(raw);
-      } catch {
-        return raw;
-      }
-    };
-
+  toResponseDto(order: ShopOrderEntity): OrderResponseDto {
     return {
       id: order.id,
       name: order.name,
@@ -299,16 +290,16 @@ export class OrderService {
       status: order.status,
       financial_status: order.financialStatus,
       fulfillment_status: order.fulfillmentStatus,
-      total_price_set: safeParse(order.totalPriceSet),
-      subtotal_price_set: safeParse(order.subtotalPriceSet),
-      shipping_price_set: safeParse(order.shippingPriceSet),
-      total_tax_set: safeParse(order.totalTaxSet),
-      total_refunded_set: safeParse(order.totalRefundedSet),
+      total_price_set: safeParseJson(order.totalPriceSet),
+      subtotal_price_set: safeParseJson(order.subtotalPriceSet),
+      shipping_price_set: safeParseJson(order.shippingPriceSet),
+      total_tax_set: safeParseJson(order.totalTaxSet),
+      total_refunded_set: safeParseJson(order.totalRefundedSet),
       refunded: order.refunded,
       payment_gateway_names: order.paymentGatewayNames ? order.paymentGatewayNames.split(',') : [],
-      line_items: safeParse(order.lineItems),
-      shipping_address: safeParse(order.shippingAddress),
-      billing_address: safeParse(order.billingAddress),
+      line_items: safeParseJson(order.lineItems) as Record<string, any>[] | null,
+      shipping_address: safeParseJson(order.shippingAddress),
+      billing_address: safeParseJson(order.billingAddress),
       type: order.orderType,
       created_at: order.createdAt?.toISOString() ?? null,
       updated_at: order.updatedAt?.toISOString() ?? null,

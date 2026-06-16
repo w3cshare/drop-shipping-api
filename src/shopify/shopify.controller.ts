@@ -19,7 +19,7 @@ import { OrderStatusService } from './config/order-status.service';
  * 使用 ShopifyAuthGuard 保护路由
  * 注入 ShopifyGraphqlService 和 BillingService
  */
-@Controller('shopify/api')
+@Controller('api/shopify')
 @UseGuards(ShopifyAuthGuard)
 export class ShopifyController {
   private readonly logger = new Logger(ShopifyController.name);

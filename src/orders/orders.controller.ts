@@ -2,6 +2,7 @@ import { Controller, Get, Query, Param, UseGuards, Req, Logger } from '@nestjs/c
 import { Request } from 'express';
 import { ShopifyAuthGuard } from '../shopify/auth/auth.guard';
 import { OrderService } from './order.service';
+import { OrderFiltersDto } from './dto/order.dto';
 
 /**
  * 订单管理接口（直接从数据库 b_3rd_orders 读取）
@@ -14,7 +15,7 @@ import { OrderService } from './order.service';
  *   GET /admin/api/orders/:id      订单详情
  *   GET /admin/api/orders/stats    订单统计
  */
-@Controller('admin/api')
+@Controller('api/admin')
 @UseGuards(ShopifyAuthGuard)
 export class OrdersController {
   private readonly logger = new Logger(OrdersController.name);
@@ -49,7 +50,7 @@ export class OrdersController {
       const shop = (req as any).shopify?.shop as string;
       this.logger.log(`[admin] Fetching orders from DB for shop: ${shop}`);
 
-      const filters: any = {};
+      const filters: OrderFiltersDto = {};
       if (status) filters.status = status;
       if (financialStatus) filters.financialStatus = financialStatus;
       if (fulfillmentStatus) filters.fulfillmentStatus = fulfillmentStatus;
@@ -65,13 +66,13 @@ export class OrdersController {
           filters,
         );
 
-      const orders = items.map((o) => this.orderService.toResponseDto(o));
+      // items 已经是 DTO 格式，无需再次转换
       const totalPages = Math.ceil(total / curPageSize);
 
       return {
         success: true,
         shop,
-        data: orders,
+        data: items,
         pagination: {
           page: curPage,
           page_size: curPageSize,
