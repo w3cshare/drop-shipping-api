@@ -85,7 +85,7 @@ export class ShopifyClientController {
         api: 'REST',
         shop,
         count: Array.isArray(orders) ? orders.length : 0,
-        data: result,
+        data: orders,
       };
     } catch (error: any) {
       this.logger.error(`[REST] Failed to fetch orders: ${error.message}`, error.stack);
