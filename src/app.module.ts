@@ -10,6 +10,8 @@ import { OrdersModule } from './orders/order.module';
 import { RedisModule } from './database/redis/redis.module';
 import { ShopSessionEntity } from './database/entities/shop-session.entity';
 import { ShopOrderEntity } from './database/entities/order.entity';
+import { UserEntity } from './database/entities/user.entity';
+import { AdminAuthModule } from './auth/admin-auth.module';
 import { AppController } from './app.controller';
 
 @Module({
@@ -24,7 +26,7 @@ import { AppController } from './app.controller';
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => {
         const isProduction = configService.get<string>('NODE_ENV') === 'production';
-        const entities = [ShopSessionEntity, ShopOrderEntity];
+        const entities = [ShopSessionEntity, ShopOrderEntity, UserEntity];
 
         return {
           type: 'mysql' as const,
@@ -53,7 +55,7 @@ import { AppController } from './app.controller';
       inject: [ConfigService],
     }),
 
-    TypeOrmModule.forFeature([ShopSessionEntity, ShopOrderEntity]),
+    TypeOrmModule.forFeature([ShopSessionEntity, ShopOrderEntity, UserEntity]),
 
     ShopifyModule,
     ShopifyClientModule,
@@ -62,6 +64,7 @@ import { AppController } from './app.controller';
     BillingModule,
     OrdersModule,
     RedisModule,
+    AdminAuthModule,
   ],
   controllers: [AppController],
 })
