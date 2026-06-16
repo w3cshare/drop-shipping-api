@@ -8,6 +8,7 @@ import { SyncRecordEntity } from '../database/entities/sync-record.entity';
 import { ShopSessionEntity } from '../database/entities/shop-session.entity';
 import { ShopifyModule } from '../shopify/shopify.module';
 import { WebhookModule } from '../webhooks/webhook.module';
+import { OrdersController } from './orders.controller';
 
 /**
  * 订单模块
@@ -24,6 +25,7 @@ import { WebhookModule } from '../webhooks/webhook.module';
     forwardRef(() => WebhookModule),
   ],
   providers: [OrderService, OrderSyncService, SyncScheduler],
+  controllers: [OrdersController],
   exports: [OrderService, OrderSyncService, SyncScheduler],
 })
 export class OrdersModule {}

@@ -7,8 +7,11 @@ import { WebhookQueueService } from './webhook-queue.service';
 import { WebhookEventProcessor } from './webhook-event-processor';
 import { ShopifyModule } from '../shopify/shopify.module';
 import { OrdersModule } from '../orders/order.module';
+import { ProductsModule } from '../products/products.module';
 import { PendingEventEntity } from '../database/entities/pending-event.entity';
 import { SyncRecordEntity } from '../database/entities/sync-record.entity';
+
+
 
 /**
  * Webhook 模块
@@ -26,6 +29,7 @@ import { SyncRecordEntity } from '../database/entities/sync-record.entity';
   imports: [
     forwardRef(() => ShopifyModule),
     forwardRef(() => OrdersModule),
+    forwardRef(() => ProductsModule),
     TypeOrmModule.forFeature([PendingEventEntity, SyncRecordEntity]),
   ],
   controllers: [WebhookController],

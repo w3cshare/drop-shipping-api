@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ShopifyModule } from '../shopify/shopify.module';
 import { ShopifySessionService } from '../shopify/session/shopify-session.service';
 
 /**
