@@ -10,5 +10,4 @@ export * from './webhooks/webhook.module';
 export * from './webhooks/webhook.controller';
 export * from './webhooks/hmac.middleware';
 export * from './billing/billing.service';
-export * from './products/products.controller';
 export * from './database/entities/shop-session.entity';

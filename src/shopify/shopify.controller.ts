@@ -7,10 +7,10 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request } from 'express';
-import { ShopifyAuthGuard } from '../shopify/auth/auth.guard';
-import { ShopifyGraphqlService } from '../shopify/graphql/graphql.service';
+import { ShopifyAuthGuard } from './auth/auth.guard';
+import { ShopifyGraphqlService } from './graphql/graphql.service';
 import { BillingService } from '../billing/billing.service';
-import { OrderStatusService } from '../shopify/config/order-status.service';
+import { OrderStatusService } from './config/order-status.service';
 
 /**
  * 产品业务控制器
@@ -19,10 +19,10 @@ import { OrderStatusService } from '../shopify/config/order-status.service';
  * 使用 ShopifyAuthGuard 保护路由
  * 注入 ShopifyGraphqlService 和 BillingService
  */
-@Controller('api')
+@Controller('shopify/api')
 @UseGuards(ShopifyAuthGuard)
-export class ProductsController {
-  private readonly logger = new Logger(ProductsController.name);
+export class ShopifyController {
+  private readonly logger = new Logger(ShopifyController.name);
 
   constructor(
     private readonly graphqlService: ShopifyGraphqlService,
@@ -207,11 +207,13 @@ export class ProductsController {
 
       this.logger.log(`Fetching orders for shop: ${shop}`);
 
-      const orders = await this.graphqlService.getOrders(shop, parseInt(limit, 10));
+      const result = await this.graphqlService.getOrders(shop, parseInt(limit, 10));
 
       return {
         success: true,
-        data: orders,
+        count: result.count,
+        orders: result.orders,
+        page_info: result.page_info,
         shop,
       };
     } catch (error: any) {

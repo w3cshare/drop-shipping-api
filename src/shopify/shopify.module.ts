@@ -11,10 +11,12 @@ import { ShopifySessionService } from './session/shopify-session.service';
 import { ShopifyAuthController } from './auth/auth.controller';
 import { ShopifyAuthGuard } from './auth/auth.guard';
 import { ShopifyGraphqlService } from './graphql/graphql.service';
-import { ShopifyClientService } from './client/shopify-client.service';
+import { ShopifyClientModule } from './client/shopify-client.module';
+import { ShopifyController } from './shopify.controller';
 import { ShopSessionEntity } from '../database/entities/shop-session.entity';
 import { WebhookModule } from '../webhooks/webhook.module';
 import { OrderStatusService } from './config/order-status.service';
+import { BillingModule } from '../billing/billing.module';
 
 /**
  * Shopify 核心模块。
@@ -29,20 +31,20 @@ import { OrderStatusService } from './config/order-status.service';
     ConfigModule,
     TypeOrmModule.forFeature([ShopSessionEntity]),
     forwardRef(() => WebhookModule),
+    forwardRef(() => BillingModule),
+    ShopifyClientModule,
   ],
-  controllers: [ShopifyAuthController],
+  controllers: [ShopifyAuthController, ShopifyController],
   providers: [
     ShopifySessionService,
     ShopifyAuthGuard,
     ShopifyGraphqlService,
-    ShopifyClientService,
     OrderStatusService,
   ],
   exports: [
     ShopifySessionService,
     ShopifyAuthGuard,
     ShopifyGraphqlService,
-    ShopifyClientService,
     OrderStatusService,
   ],
 })

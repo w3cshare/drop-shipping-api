@@ -2,9 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ShopifyModule } from './shopify/shopify.module';
-import { ShopifyClientModule } from './shopify/client/shopify-client.module';
 import { WebhookModule } from './webhooks/webhook.module';
-import { ProductsModule } from './products/products.module';
 import { BillingModule } from './billing/billing.module';
 import { OrdersModule } from './orders/order.module';
 import { RedisModule } from './database/redis/redis.module';
@@ -56,9 +54,7 @@ import { AppController } from './app.controller';
     TypeOrmModule.forFeature([ShopSessionEntity, ShopOrderEntity]),
 
     ShopifyModule,
-    ShopifyClientModule,
     WebhookModule,
-    ProductsModule,
     BillingModule,
     OrdersModule,
     RedisModule,
