@@ -42,14 +42,19 @@ export class OrderService {
       order.id = orderId;
       order.shop = shop;
       order.name = orderData.name;
+      order.orderStatusUrl = orderData.order_status_url;
+      order.sourceName = orderData.source_name || '';
       order.status = orderData.status || 'open';
       order.financialStatus = orderData.financial_status || orderData.financialStatus || 'pending';
       order.fulfillmentStatus = orderData.fulfillment_status || orderData.fulfillmentStatus || 'unfulfilled';
-
+      
+      // 客户信息（JSON 格式存储）
+      order.customer = JSON.stringify(orderData.customer || {});
+      
       // 金额信息（JSON 格式存储）
       order.totalPriceSet = JSON.stringify(orderData.total_price_set || orderData.totalPriceSet || {});
       order.subtotalPriceSet = JSON.stringify(orderData.subtotal_price_set || orderData.subtotalPriceSet || {});
-      order.shippingPriceSet = JSON.stringify(orderData.shipping_price_set || orderData.shippingPriceSet || {});
+      order.shippingPriceSet = JSON.stringify(orderData.total_shipping_price_set || orderData.totalShippingPriceSet || {});
       order.totalTaxSet = JSON.stringify(orderData.total_tax_set || orderData.totalTaxSet || {});
 
       // 时间信息
@@ -288,6 +293,9 @@ export class OrderService {
       name: order.name,
       shop: order.shop,
       status: order.status,
+      order_status_url: order.orderStatusUrl,
+      source_name: order.sourceName,
+      customer: safeParseJson(order.customer),
       financial_status: order.financialStatus,
       fulfillment_status: order.fulfillmentStatus,
       total_price_set: safeParseJson(order.totalPriceSet),

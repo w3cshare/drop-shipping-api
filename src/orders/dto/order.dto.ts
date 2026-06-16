@@ -54,6 +54,9 @@ export class OrderResponseDto {
   name: string;
   shop: string;
   status: string;
+  order_status_url: string;
+  source_name: string;
+  customer: Record<string, any> | null;
   financial_status: string;
   fulfillment_status: string;
   total_price_set: Record<string, any> | null;
