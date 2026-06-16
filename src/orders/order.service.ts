@@ -8,7 +8,7 @@ import {
   OrderStatsDto,
   OrderResponseDto,
   safeParseJson,
-} from './dto/order.dto';
+} from './order.dto';
 
 /**
  * 订单服务
