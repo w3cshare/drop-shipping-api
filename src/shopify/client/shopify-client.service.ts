@@ -125,7 +125,7 @@ export class ShopifyClientService {
   }
 
   /** 获取店铺信息（REST） */
-  async getShopRest(shop: string): Promise<any> {
+  async getShop(shop: string): Promise<any> {
     return this.adminApiRequest<any>(shop, 'shop.json', 'GET');
   }
 

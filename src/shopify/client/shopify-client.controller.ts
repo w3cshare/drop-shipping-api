@@ -36,7 +36,7 @@ export class ShopifyClientController {
 
       this.logger.log(`[REST] Fetching shop info for shop: ${shop}`);
 
-      const result = await this.clientService.getShopRest(shop) as any;
+      const result = await this.clientService.getShop(shop) as any;
 
       // REST API 返回结构: { body: { shop: {...} }, ... }
       const shopInfo = result?.body?.shop || result?.shop || result;
