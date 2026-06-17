@@ -1,12 +1,14 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { WebhookQueueService } from './webhook-queue.service';
 import { OrderService } from '../orders/order.service';
+import { ProductService } from '../products/product.service';
 
 /**
  * Webhook 事件处理器。
  *
  * 负责从队列中取出事件并处理。
  * 支持订单创建、更新、取消、发货等事件。
+ * 支持商品创建、更新、删除等事件。
  */
 @Injectable()
 export class WebhookEventProcessor implements OnModuleInit, OnModuleDestroy {
@@ -27,6 +29,7 @@ export class WebhookEventProcessor implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly webhookQueueService: WebhookQueueService,
     private readonly orderService: OrderService,
+    private readonly productService: ProductService,
   ) {}
 
   onModuleInit() {
@@ -141,12 +144,24 @@ export class WebhookEventProcessor implements OnModuleInit, OnModuleDestroy {
         await this.handleOrderRefunded(shop, data);
         break;
 
+      case 'products/create':
+        await this.handleProductCreate(shop, data);
+        break;
+
+      case 'products/update':
+        await this.handleProductUpdate(shop, data);
+        break;
+
+      case 'products/delete':
+        await this.handleProductDelete(shop, data);
+        break;
+
       default:
         this.logger.debug(`Unhandled event type: ${eventType}`);
     }
   }
 
-  // ========== 事件处理方法 ==========
+  // ========== 订单事件处理方法 ==========
 
   private async handleOrderCreate(shop: string, data: any): Promise<void> {
     await this.orderService.saveOrder(shop, data);
@@ -181,5 +196,22 @@ export class WebhookEventProcessor implements OnModuleInit, OnModuleDestroy {
   private async handleOrderRefunded(shop: string, data: any): Promise<void> {
     await this.orderService.saveOrder(shop, data);
     this.logger.log(`Order ${data.id} refund recorded via queue`);
+  }
+
+  // ========== 商品事件处理方法 ==========
+
+  private async handleProductCreate(shop: string, data: any): Promise<void> {
+    await this.productService.saveProduct(shop, data);
+    this.logger.log(`Product ${data.id} (${data.title}) saved via queue`);
+  }
+
+  private async handleProductUpdate(shop: string, data: any): Promise<void> {
+    await this.productService.saveProduct(shop, data);
+    this.logger.log(`Product ${data.id} updated via queue`);
+  }
+
+  private async handleProductDelete(shop: string, data: any): Promise<void> {
+    await this.productService.deleteProduct(shop, String(data.id));
+    this.logger.log(`Product ${data.id} deleted via queue`);
   }
 }

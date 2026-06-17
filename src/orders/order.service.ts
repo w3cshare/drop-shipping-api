@@ -12,7 +12,7 @@ import {
 
 /**
  * 订单服务
- * 
+ *
  * 处理 Shopify 订单的存储、查询和更新
  */
 @Injectable()
@@ -41,7 +41,7 @@ export class OrderService {
       order.status = orderData.status || 'open';
       order.financialStatus = orderData.financial_status || orderData.financialStatus || 'pending';
       order.fulfillmentStatus = orderData.fulfillment_status || orderData.fulfillmentStatus || 'unfulfilled';
-      
+
       // 客户信息（JSON 格式存储）
       order.customer = JSON.stringify(orderData.customer || {});
       
@@ -98,10 +98,8 @@ export class OrderService {
   /**
    * 根据 ID 获取订单
    */
-  async getOrderById(shop: string, orderId: string): Promise<ShopOrderEntity | null> {
-    return this.orderRepository.findOne({
-      where: { orderId: orderId, shop },
-    });
+  async findOrderById(shop: string, orderId: string): Promise<ShopOrderEntity | null> {
+    return this.orderRepository.findOne({ where: { orderId, shop } });
   }
 
   /**
@@ -127,7 +125,7 @@ export class OrderService {
    * 删除订单
    */
   async deleteOrder(shop: string, orderId: string): Promise<void> {
-    await this.orderRepository.delete({ orderId: orderId, shop });
+    await this.orderRepository.delete({ orderId, shop });
     this.logger.log(`Order ${orderId} deleted for shop ${shop}`);
   }
 
@@ -137,47 +135,6 @@ export class OrderService {
   async deleteOrdersByShop(shop: string): Promise<void> {
     await this.orderRepository.delete({ shop });
     this.logger.log(`All orders deleted for shop ${shop}`);
-  }
-
-  /**
-   * 查询订单（支持过滤）
-   */
-  async searchOrders(
-    shop: string,
-    filters: {
-      status?: string;
-      financialStatus?: string;
-      fulfillmentStatus?: string;
-      startDate?: Date;
-      endDate?: Date;
-    },
-    limit: number = 20,
-    offset: number = 0,
-  ): Promise<ShopOrderEntity[]> {
-    const query = this.orderRepository.createQueryBuilder('order')
-      .where('order.shop = :shop', { shop });
-
-    if (filters.status) {
-      query.andWhere('order.status = :status', { status: filters.status });
-    }
-    if (filters.financialStatus) {
-      query.andWhere('order.financialStatus = :financialStatus', { financialStatus: filters.financialStatus });
-    }
-    if (filters.fulfillmentStatus) {
-      query.andWhere('order.fulfillmentStatus = :fulfillmentStatus', { fulfillmentStatus: filters.fulfillmentStatus });
-    }
-    if (filters.startDate) {
-      query.andWhere('order.createdAt >= :startDate', { startDate: filters.startDate });
-    }
-    if (filters.endDate) {
-      query.andWhere('order.createdAt <= :endDate', { endDate: filters.endDate });
-    }
-
-    return query
-      .orderBy('order.createdAt', 'DESC')
-      .take(limit)
-      .skip(offset)
-      .getMany();
   }
 
   /**
@@ -236,13 +193,6 @@ export class OrderService {
       page: safePage,
       pageSize: safePageSize,
     };
-  }
-
-  /**
-   * 按订单 ID 获取一条（含 shop 隔离）
-   */
-  async findOrderById(shop: string, orderId: string): Promise<ShopOrderEntity | null> {
-    return this.orderRepository.findOne({ where: { shop, orderId: orderId } });
   }
 
   /**

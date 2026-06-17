@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Cron, Interval, SchedulerRegistry } from '@nestjs/schedule';
 import { OrderSyncService } from './order-sync.service';
+import { ProductSyncService } from './product-sync.service';
 import { WebhookQueueService } from '../webhooks/webhook-queue.service';
 import { ShopSessionEntity } from '../database/entities/shop-session.entity';
 import { SyncRecordEntity } from '../database/entities/sync-record.entity';
@@ -13,7 +14,7 @@ import { SyncRecordEntity } from '../database/entities/sync-record.entity';
  * 三层补偿机制：
  * 1. Webhook 实时接收 -> 写入队列 -> 异步处理
  * 2. WebhookQueue 定时轮询（每 30 秒）-> 处理积压事件
- * 3. OrderSync 定时全量同步（每 5 分钟）-> 兜底补偿缺失订单
+ * 3. OrderSync/ProductSync 定时全量同步 -> 兜底补偿缺失数据
  * 4. Webhook 事件清理（每小时）-> 删除 7 天前的已处理事件
  *
  * 使用 @nestjs/schedule 装饰器管理定时任务，框架自动处理：
@@ -27,6 +28,7 @@ export class SyncScheduler implements OnModuleInit {
 
   constructor(
     private readonly orderSyncService: OrderSyncService,
+    private readonly productSyncService: ProductSyncService,
     private readonly webhookQueueService: WebhookQueueService,
     private readonly schedulerRegistry: SchedulerRegistry,
     @InjectRepository(ShopSessionEntity)
@@ -36,14 +38,17 @@ export class SyncScheduler implements OnModuleInit {
   ) {}
 
   /**
-   * 模块初始化：立即执行一次订单同步（首次启动不等待 cron）
+   * 模块初始化：立即执行一次订单和商品同步（首次启动不等待 cron）
    */
   async onModuleInit() {
     this.logger.log('[Scheduler] Initialized with NestJS Schedule');
-    // 启动时立即触发一次订单同步（不阻塞应用启动）
+    // 启动时立即触发一次订单和商品同步（不阻塞应用启动）
     setImmediate(() => {
       this.runOrderSync().catch((err) => {
         this.logger.error(`[Scheduler] Initial order sync failed: ${err.message}`);
+      });
+      this.runProductSync().catch((err) => {
+        this.logger.error(`[Scheduler] Initial product sync failed: ${err.message}`);
       });
     });
   }
@@ -58,6 +63,18 @@ export class SyncScheduler implements OnModuleInit {
   })
   async handleOrderSyncCron() {
     await this.runOrderSync();
+  }
+
+  /**
+   * 商品同步：每 10 分钟执行一次（与订单同步错开）
+   * cron: 0 [每 10 分钟] * * * *
+   */
+  @Cron('0 */10 * * * *', {
+    name: 'productSync',
+    timeZone: 'Asia/Shanghai',
+  })
+  async handleProductSyncCron() {
+    await this.runProductSync();
   }
 
   /**
@@ -167,6 +184,60 @@ export class SyncScheduler implements OnModuleInit {
       }
     } catch (error: any) {
       this.logger.error(`[Scheduler] Order sync task failed: ${error.message}`, error.stack);
+    }
+  }
+
+  /**
+   * 执行商品同步（核心逻辑）
+   */
+  private async runProductSync(): Promise<void> {
+    const startTime = Date.now();
+    this.logger.log('[Scheduler] === Starting scheduled product sync ===');
+
+    try {
+      const sessions = await this.sessionRepository.find({
+        where: { sessionType: 'offline' as any },
+        select: ['shop'],
+      });
+
+      this.logger.log(`[Scheduler] Found ${sessions.length} authorized shops`);
+
+      let totalSynced = 0;
+      let successCount = 0;
+      let failedCount = 0;
+      const results: { shop: string; synced: number; error?: string }[] = [];
+
+      for (const session of sessions) {
+        try {
+          const synced = await this.productSyncService.syncProducts(session.shop);
+          results.push({ shop: session.shop, synced });
+          totalSynced += synced;
+          successCount++;
+        } catch (error: any) {
+          results.push({ shop: session.shop, synced: 0, error: error.message });
+          failedCount++;
+          this.logger.error(`[Scheduler] Failed to sync products for ${session.shop}: ${error.message}`);
+        }
+      }
+
+      const duration = Date.now() - startTime;
+      const summary =
+        `[Scheduler] === Product sync completed ===\n` +
+        `  Duration: ${duration}ms\n` +
+        `  Shops: ${successCount} success, ${failedCount} failed\n` +
+        `  Products synced: ${totalSynced}`;
+
+      this.logger.log(summary);
+
+      if (results.some((r) => r.synced > 0)) {
+        const details = results
+          .filter((r) => r.synced > 0)
+          .map((r) => `${r.shop}:${r.synced}`)
+          .join(', ');
+        this.logger.debug(`[Scheduler] Product sync details: ${details}`);
+      }
+    } catch (error: any) {
+      this.logger.error(`[Scheduler] Product sync task failed: ${error.message}`, error.stack);
     }
   }
 

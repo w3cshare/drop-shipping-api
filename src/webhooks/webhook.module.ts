@@ -8,6 +8,7 @@ import { WebhookEventProcessor } from './webhook-event-processor';
 import { ShopifyModule } from '../shopify/shopify.module';
 import { OrdersModule } from '../orders/order.module';
 import { ProductsModule } from '../products/products.module';
+import { SyncModule } from '../sync/sync.module';
 import { PendingEventEntity } from '../database/entities/pending-event.entity';
 import { SyncRecordEntity } from '../database/entities/sync-record.entity';
 
@@ -30,6 +31,7 @@ import { SyncRecordEntity } from '../database/entities/sync-record.entity';
     forwardRef(() => ShopifyModule),
     forwardRef(() => OrdersModule),
     forwardRef(() => ProductsModule),
+    forwardRef(() => SyncModule),
     TypeOrmModule.forFeature([PendingEventEntity, SyncRecordEntity]),
   ],
   controllers: [WebhookController],

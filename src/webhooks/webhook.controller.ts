@@ -14,7 +14,7 @@ import { Request } from 'express';
 import { ShopifySessionService } from '../shopify/session/shopify-session.service';
 import { OrderService } from '../orders/order.service';
 import { WebhookQueueService } from './webhook-queue.service';
-import { SyncScheduler } from '../orders/sync-scheduler';
+import { SyncScheduler } from '../sync/sync-scheduler';
 import { ProductService } from '../products/product.service';
 
 /**
@@ -33,15 +33,6 @@ import { ProductService } from '../products/product.service';
  * - shop/redact: 店铺请求删除数据
  * - customers/data_request: 客户请求获取数据副本
  * 
- * 其他常用 Webhook：
- * - orders/create: 新订单创建
- * - orders/updated: 订单更新
- * - orders/cancelled: 订单取消
- * - orders/fulfilled: 订单完成
- * - products/create: 新产品创建
- * - products/update: 产品更新
- * - products/delete: 产品删除
- * - app/uninstalled: 应用卸载（清理数据）
  */
 @Controller('webhooks')
 export class WebhookController {
@@ -152,7 +143,7 @@ export class WebhookController {
   /**
    * 处理产品创建 Webhook
    *
-   * 当 Shopify 创建新产品时触发，将商品数据保存到本地数据库
+   * 第一层：立即入队，立即返回 200
    */
   @Post('products/create')
   @HttpCode(HttpStatus.OK)
@@ -160,23 +151,23 @@ export class WebhookController {
     try {
       const product = req.body;
       const shop = req.headers['x-shopify-shop-domain'] as string;
+      const shopifyEventId = req.headers['x-shopify-topic'] as string || 'products/create';
 
-      this.logger.log(`Product created: ${product.id} (${product.title}) from ${shop}`);
+      this.logger.log(`Webhook received: products/create from ${shop}, product=${product.id}`);
 
-      await this.productService.saveProduct(shop, product);
+      await this.webhookQueueService.enqueue(shop, 'products/create', product, shopifyEventId);
 
-      this.logger.log(`Product ${product.id} saved successfully`);
-      return { success: true, productId: product.id, message: 'Product saved to database' };
+      return { success: true, queued: true };
     } catch (error: any) {
-      this.logger.error(`Failed to handle products/create: ${error.message}`, error.stack);
-      return { success: false, error: error.message };
+      this.logger.error(`Failed to enqueue products/create: ${error.message}`, error.stack);
+      return { success: false, queued: false, error: error.message };
     }
   }
 
   /**
    * 处理产品更新 Webhook
    *
-   * 当商品信息更新时触发，同步更新本地数据库
+   * 第一层：立即入队，立即返回 200
    */
   @Post('products/update')
   @HttpCode(HttpStatus.OK)
@@ -184,23 +175,23 @@ export class WebhookController {
     try {
       const product = req.body;
       const shop = req.headers['x-shopify-shop-domain'] as string;
+      const shopifyEventId = req.headers['x-shopify-topic'] as string || 'products/update';
 
-      this.logger.log(`Product updated: ${product.id} (${product.title}) from ${shop}`);
+      this.logger.log(`Webhook received: products/update from ${shop}, product=${product.id}`);
 
-      await this.productService.saveProduct(shop, product);
+      await this.webhookQueueService.enqueue(shop, 'products/update', product, shopifyEventId);
 
-      this.logger.log(`Product ${product.id} updated successfully`);
-      return { success: true, productId: product.id, message: 'Product updated in database' };
+      return { success: true, queued: true };
     } catch (error: any) {
-      this.logger.error(`Failed to handle products/update: ${error.message}`, error.stack);
-      return { success: false, error: error.message };
+      this.logger.error(`Failed to enqueue products/update: ${error.message}`, error.stack);
+      return { success: false, queued: false, error: error.message };
     }
   }
 
   /**
    * 处理产品删除 Webhook
    *
-   * 当商品被删除时触发，从本地数据库移除
+   * 第一层：立即入队，立即返回 200
    */
   @Post('products/delete')
   @HttpCode(HttpStatus.OK)
@@ -208,16 +199,16 @@ export class WebhookController {
     try {
       const product = req.body;
       const shop = req.headers['x-shopify-shop-domain'] as string;
+      const shopifyEventId = req.headers['x-shopify-topic'] as string || 'products/delete';
 
-      this.logger.log(`Product deleted: ${product.id} from ${shop}`);
+      this.logger.log(`Webhook received: products/delete from ${shop}, product=${product.id}`);
 
-      await this.productService.deleteProduct(shop, String(product.id));
+      await this.webhookQueueService.enqueue(shop, 'products/delete', product, shopifyEventId);
 
-      this.logger.log(`Product ${product.id} deleted from database`);
-      return { success: true, productId: product.id, message: 'Product deleted from database' };
+      return { success: true, queued: true };
     } catch (error: any) {
-      this.logger.error(`Failed to handle products/delete: ${error.message}`, error.stack);
-      return { success: false, error: error.message };
+      this.logger.error(`Failed to enqueue products/delete: ${error.message}`, error.stack);
+      return { success: false, queued: false, error: error.message };
     }
   }
 

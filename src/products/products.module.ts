@@ -6,8 +6,19 @@ import { ShopProductEntity } from '../database/entities/product.entity';
 import { ShopifyModule } from '../shopify/shopify.module';
 import { BillingModule } from '../billing/billing.module';
 
+/**
+ * 商品模块
+ *
+ * 提供：
+ * - ProductService：商品 CRUD 操作
+ * - ProductsController：商品查询接口
+ */
 @Module({
-  imports: [TypeOrmModule.forFeature([ShopProductEntity]), forwardRef(() => ShopifyModule), forwardRef(() => BillingModule)],
+  imports: [
+    TypeOrmModule.forFeature([ShopProductEntity]),
+    forwardRef(() => ShopifyModule),
+    forwardRef(() => BillingModule),
+  ],
   providers: [ProductService],
   controllers: [ProductsController],
   exports: [ProductService],

@@ -7,6 +7,7 @@ import { WebhookModule } from './webhooks/webhook.module';
 import { BillingModule } from './billing/billing.module';
 import { OrdersModule } from './orders/order.module';
 import { ProductsModule } from './products/products.module';
+import { SyncModule } from './sync/sync.module';
 import { RedisModule } from './database/redis/redis.module';
 import { ShopSessionEntity } from './database/entities/shop-session.entity';
 import { ShopOrderEntity } from './database/entities/order.entity';
@@ -68,6 +69,7 @@ import { AppController } from './app.controller';
     BillingModule,
     OrdersModule,
     ProductsModule,
+    SyncModule,
     RedisModule,
     UserAuthModule,
   ],

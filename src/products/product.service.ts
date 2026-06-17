@@ -35,7 +35,7 @@ export class ProductService {
 
       // 检查商品是否已存在
       const existing = await this.productRepository.findOne({
-        where: { productId: productId, shop },
+        where: { productId, shop },
       });
 
       const product = existing || new ShopProductEntity();
@@ -89,7 +89,7 @@ export class ProductService {
    * 按商品 ID 获取一条（含 shop 隔离）
    */
   async findProductById(shop: string, productId: string): Promise<ShopProductEntity | null> {
-    return this.productRepository.findOne({ where: { shop, productId: productId } });
+    return this.productRepository.findOne({ where: { shop, productId } });
   }
 
   /**
@@ -158,7 +158,7 @@ export class ProductService {
    * 删除商品（含 shop 隔离）
    */
   async deleteProduct(shop: string, productId: string): Promise<void> {
-    await this.productRepository.delete({ productId: productId, shop });
+    await this.productRepository.delete({ productId, shop });
     this.logger.log(`Product ${productId} deleted for shop ${shop}`);
   }
 

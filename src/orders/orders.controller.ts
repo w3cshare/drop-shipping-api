@@ -3,7 +3,7 @@ import { Request } from 'express';
 import { ShopifyAuthGuard } from '../shopify/auth/auth.guard';
 import { OrderService } from './order.service';
 import { OrderFiltersDto } from './order.dto';
-import { SyncScheduler } from './sync-scheduler';
+import { SyncScheduler } from '../sync/sync-scheduler';
 
 /**
  * 订单管理接口（直接从数据库 b_3rd_orders 读取）
