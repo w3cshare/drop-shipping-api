@@ -220,7 +220,7 @@ export class OrderService {
       const kw = `%${filters.keyword}%`;
       query.andWhere(
         new Brackets((qb) => {
-          qb.where('o.name LIKE :kw', { kw }).orWhere('o.id LIKE :kw', { kw });
+          qb.where('o.name LIKE :kw', { kw }).orWhere('o.orderId LIKE :kw', { kw });
         }),
       );
     }
