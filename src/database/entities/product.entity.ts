@@ -1,4 +1,4 @@
-import { Entity, Column, PrimaryColumn, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, PrimaryColumn, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
 
 /**
  * Shopify 商品实体
@@ -7,9 +7,14 @@ import { Entity, Column, PrimaryColumn, CreateDateColumn, UpdateDateColumn, Inde
  */
 @Entity({ name: 'b_3rd_products', comment: 'Shopify 商品表 - 存储来自 Shopify Webhook 的商品数据' })
 export class ShopProductEntity {
+  /** 自增 ID */
+  @PrimaryGeneratedColumn({ name: 'id', comment: '自增 ID' })
+  id: number;
+
   /** Shopify 商品 ID */
-  @PrimaryColumn({ type: 'bigint', comment: 'Shopify 商品 ID' })
-  id: string;
+  @Index()
+  @Column({ name: 'product_id', type: 'bigint', comment: 'Shopify 商品 ID' })
+  productId: string;
 
   /** 店铺域名 */
   @Index()

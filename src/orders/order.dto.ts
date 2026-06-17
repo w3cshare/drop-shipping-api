@@ -50,10 +50,11 @@ export class OrderStatsDto {
  * 主要工作：解析 text 字段中存储的 JSON
  */
 export class OrderResponseDto {
-  id: string;
+  id: number;
   name: string;
   shop: string;
   status: string;
+  order_id: string;
   order_status_url: string;
   source_name: string;
   customer: Record<string, any> | null;
