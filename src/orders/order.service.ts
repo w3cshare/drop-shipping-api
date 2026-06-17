@@ -287,12 +287,22 @@ export class OrderService {
    * 将数据库实体转换为对外响应 DTO
    * 主要工作：解析 text 字段中存储的 JSON
    */
-  toResponseDto(order: ShopOrderEntity): OrderResponseDto {
+  toResponseDto(order: ShopOrderEntity, shopInfo?: {
+    name: string | null;
+    email: string | null;
+    domain: string | null;
+    currency_code: string | null;
+    country_code: string | null;
+  } | null): OrderResponseDto {
     return {
       id: order.id,
       order_id: order.orderId,
       name: order.name,
       shop: order.shop,
+      shop_name: shopInfo?.name ?? null,
+      shop_email: shopInfo?.email ?? null,
+      shop_domain: shopInfo?.domain ?? null,
+      shop_currency: shopInfo?.currency_code ?? null,
       status: order.status,
       order_status_url: order.orderStatusUrl,
       source_name: order.sourceName,

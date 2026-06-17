@@ -26,6 +26,7 @@ export class WebhookRegistrationService {
     'products/create',
     'products/update',
     'products/delete',
+    'shop/update',
     'app/uninstalled',
   ];
 

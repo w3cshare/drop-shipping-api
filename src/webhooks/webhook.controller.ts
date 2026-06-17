@@ -10,6 +10,7 @@ import { Request } from 'express';
 import { ShopifySessionService } from '../shopify/session/shopify-session.service';
 import { OrderService } from '../orders/order.service';
 import { ProductService } from '../products/product.service';
+import { ShopService } from '../shop/shop.service';
 
 /**
  * Webhook 处理控制器
@@ -39,6 +40,7 @@ export class WebhookController {
     private readonly sessionService: ShopifySessionService,
     private readonly orderService: OrderService,
     private readonly productService: ProductService,
+    private readonly shopService: ShopService,
   ) {}
 
   /**
@@ -215,8 +217,31 @@ export class WebhookController {
   }
 
   /**
+   * 处理店铺信息更新 Webhook
+   *
+   * 当店铺的基础信息（店铺名、邮箱、域名、联系信息）发生变更时触发
+   */
+  @Post('shop/update')
+  @HttpCode(HttpStatus.OK)
+  async handleShopUpdate(@Req() req: Request) {
+    try {
+      const shop = req.headers['x-shopify-shop-domain'] as string;
+      const payload = req.body;
+
+      this.logger.log(`Shop update received: ${shop}`);
+
+      await this.shopService.upsertFromShopifyPayload(shop, payload);
+
+      return { success: true, shop };
+    } catch (error: any) {
+      this.logger.error(`Failed to handle shop/update: ${error.message}`, error.stack);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
    * 处理应用卸载 Webhook
-   * 
+   *
    * 重要：必须清理所有店铺相关数据
    * - 删除数据库中的会话记录
    * - 删除任何存储的店铺数据

@@ -173,12 +173,22 @@ export class ProductService {
   /**
    * 将数据库实体转换为对外响应 DTO
    */
-  toResponseDto(product: ShopProductEntity): ProductResponseDto {
+  toResponseDto(product: ShopProductEntity, shopInfo?: {
+    name: string | null;
+    email: string | null;
+    domain: string | null;
+    currency_code: string | null;
+    country_code: string | null;
+  } | null): ProductResponseDto {
     return {
       id: product.id,
       product_id: product.productId,
       name: product.title,
       shop: product.shop,
+      shop_name: shopInfo?.name ?? null,
+      shop_email: shopInfo?.email ?? null,
+      shop_domain: shopInfo?.domain ?? null,
+      shop_currency: shopInfo?.currency_code ?? null,
       title: product.title,
       handle: product.handle,
       description: product.description,

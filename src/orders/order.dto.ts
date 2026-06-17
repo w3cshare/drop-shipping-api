@@ -53,6 +53,10 @@ export class OrderResponseDto {
   id: number;
   name: string;
   shop: string;
+  shop_name: string | null;
+  shop_email: string | null;
+  shop_domain: string | null;
+  shop_currency: string | null;
   status: string;
   order_id: string;
   order_status_url: string;

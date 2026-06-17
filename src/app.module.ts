@@ -12,7 +12,10 @@ import { ShopSessionEntity } from './database/entities/shop-session.entity';
 import { ShopOrderEntity } from './database/entities/order.entity';
 import { ShopProductEntity } from './database/entities/product.entity';
 import { UserEntity } from './database/entities/user.entity';
+import { ShopEntity } from './database/entities/shop.entity';
+import { UserShopEntity } from './database/entities/user-shop.entity';
 import { UserAuthModule } from './auth/user-auth.module';
+import { ShopModule } from './shop/shop.module';
 import { AppController } from './app.controller';
 
 @Module({
@@ -31,7 +34,7 @@ import { AppController } from './app.controller';
       useFactory: (configService: ConfigService) => {
         const isProduction = configService.get<string>('NODE_ENV') === 'production';
         const dbType = configService.get<string>('DB_TYPE', 'mysql');
-        const entities = [ShopSessionEntity, ShopOrderEntity, ShopProductEntity, UserEntity];
+        const entities = [ShopSessionEntity, ShopOrderEntity, ShopProductEntity, UserEntity, ShopEntity, UserShopEntity];
 
         if (dbType === 'sqlite') {
           return {
@@ -70,8 +73,9 @@ import { AppController } from './app.controller';
       inject: [ConfigService],
     }),
 
-    TypeOrmModule.forFeature([ShopSessionEntity, ShopOrderEntity, ShopProductEntity, UserEntity]),
+    TypeOrmModule.forFeature([ShopSessionEntity, ShopOrderEntity, ShopProductEntity, UserEntity, ShopEntity, UserShopEntity]),
 
+    ShopModule,
     ShopifyModule,
     WebhookModule,
     BillingModule,
