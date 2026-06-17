@@ -28,15 +28,26 @@ import { AppController } from './app.controller';
     // 启用 NestJS 内置定时任务调度
     ScheduleModule.forRoot(),
 
-    // TypeORM 数据库配置 - 使用 MySQL
+    // TypeORM Database - supports mysql (default) and sqlite via DB_TYPE env var
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => {
         const isProduction = configService.get<string>('NODE_ENV') === 'production';
+        const dbType = configService.get<string>('DB_TYPE', 'mysql');
         const entities = [ShopSessionEntity, ShopOrderEntity, ShopProductEntity, UserEntity, PendingEventEntity, SyncRecordEntity];
 
+        if (dbType === 'sqlite') {
+          return {
+            type: 'sqlite',
+            database: configService.get<string>('DB_SQLITE_DATABASE', 'shopify_app.db'),
+            entities,
+            synchronize: true,
+            logging: !isProduction,
+          };
+        }
+
         return {
-          type: 'mysql' as const,
+          type: 'mysql',
           host: configService.get<string>('DB_HOST', 'localhost'),
           port: configService.get<number>('DB_PORT', 3306),
           username: configService.get<string>('DB_USERNAME', 'root'),
