@@ -13,10 +13,15 @@ import { OrdersController } from './orders.controller';
 /**
  * 订单模块
  *
+ * 三层补偿机制：
+ * 1. Webhook 实时接收 → 写入队列 → WebhookEventProcessor 异步处理
+ * 2. SyncScheduler 定时轮询队列 → 处理积压事件
+ * 3. OrderSyncService 定时 REST API 全量同步 → 兜底补偿缺失订单
+ *
  * 提供：
  * - OrderService：订单 CRUD 操作
- * - OrderSyncService：订单同步（补偿机制）
- * - SyncScheduler：定时同步任务
+ * - OrderSyncService：订单同步（REST API 兜底）
+ * - SyncScheduler：定时同步任务调度
  */
 @Module({
   imports: [

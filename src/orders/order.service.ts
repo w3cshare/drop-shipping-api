@@ -25,19 +25,13 @@ export class OrderService {
   ) {}
 
   /**
-   * 保存或更新订单
+   * 保存或更新订单（使用 upsert，基于 orderId + shop 唯一约束）
    */
   async saveOrder(shop: string, orderData: any): Promise<ShopOrderEntity> {
     try {
       const orderId = String(orderData.id);
 
-      // 检查订单是否已存在
-      const existingOrder = await this.orderRepository.findOne({
-        where: { orderId: orderId, shop },
-      });
-
-      const order = existingOrder || new ShopOrderEntity();
-
+      const order = new ShopOrderEntity();
       // 基础信息
       order.orderId = orderId;
       order.shop = shop;
@@ -87,9 +81,14 @@ export class OrderService {
         order.totalRefundedSet = JSON.stringify(orderData.total_refunded_set || orderData.totalRefundedSet || {});
       }
 
-      const savedOrder = await this.orderRepository.save(order);
+      await this.orderRepository.upsert(order, {
+        conflictPaths: ['orderId', 'shop'],
+        skipUpdateIfNoValuesChanged: true,
+      });
+
+      const savedOrder = await this.orderRepository.findOne({ where: { orderId, shop } });
       this.logger.log(`Order ${orderId} saved for shop ${shop}`);
-      return savedOrder;
+      return savedOrder!;
     } catch (error: any) {
       this.logger.error(`Failed to save order: ${error.message}`, error.stack);
       throw error;

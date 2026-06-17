@@ -1,8 +1,9 @@
-import { Controller, Get, Query, Param, UseGuards, Req, Logger } from '@nestjs/common';
+import { Controller, Get, Query, Param, UseGuards, Req, Logger, Post } from '@nestjs/common';
 import { Request } from 'express';
 import { ShopifyAuthGuard } from '../shopify/auth/auth.guard';
 import { OrderService } from './order.service';
 import { OrderFiltersDto } from './order.dto';
+import { SyncScheduler } from './sync-scheduler';
 
 /**
  * 订单管理接口（直接从数据库 b_3rd_orders 读取）
@@ -20,7 +21,10 @@ import { OrderFiltersDto } from './order.dto';
 export class OrdersController {
   private readonly logger = new Logger(OrdersController.name);
 
-  constructor(private readonly orderService: OrderService) {}
+  constructor(
+    private readonly orderService: OrderService,
+    private readonly syncScheduler: SyncScheduler,
+  ) {}
 
   /**
    * 订单列表（从数据库直读）
@@ -141,6 +145,69 @@ export class OrdersController {
       };
     } catch (error: any) {
       this.logger.error(`[admin] Failed to fetch order stats: ${error.message}`, error.stack);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * 获取同步状态概览
+   */
+  @Get('orders/sync/status')
+  async getSyncStatus() {
+    try {
+      const summary = await this.syncScheduler.getSyncSummary();
+      return {
+        success: true,
+        data: summary,
+      };
+    } catch (error: any) {
+      this.logger.error(`[admin] Failed to get sync status: ${error.message}`, error.stack);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * 手动触发同步（全量）
+   */
+  @Post('orders/sync/manual')
+  async manualSync(@Req() req: Request, @Query('shop') shop?: string) {
+    try {
+      const targetShop = shop || (req as any).shopify?.shop;
+      if (!targetShop) {
+        return { success: false, error: 'shop 参数必填' };
+      }
+
+      const results = await this.syncScheduler.manualSync(targetShop);
+      return {
+        success: true,
+        message: `同步完成，共同步 ${results.reduce((sum, r) => sum + r.synced, 0)} 条订单`,
+        data: results,
+      };
+    } catch (error: any) {
+      this.logger.error(`[admin] Failed to trigger manual sync: ${error.message}`, error.stack);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * 强制全量同步（回溯最近7天）
+   */
+  @Post('orders/sync/force')
+  async forceSync(@Req() req: Request, @Query('shop') shop?: string) {
+    try {
+      const targetShop = shop || (req as any).shopify?.shop;
+      if (!targetShop) {
+        return { success: false, error: 'shop 参数必填' };
+      }
+
+      const synced = await this.syncScheduler.forceFullSync(targetShop);
+      return {
+        success: true,
+        message: `强制同步完成，共同步 ${synced} 条订单`,
+        data: { shop: targetShop, synced },
+      };
+    } catch (error: any) {
+      this.logger.error(`[admin] Failed to trigger force sync: ${error.message}`, error.stack);
       return { success: false, error: error.message };
     }
   }

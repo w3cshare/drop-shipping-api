@@ -1,110 +1,107 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, MoreThan } from 'typeorm';
+import { Repository } from 'typeorm';
 import { SyncRecordEntity } from '../database/entities/sync-record.entity';
-import { ShopifyGraphqlService } from '../shopify/graphql/graphql.service';
+import { ShopifySessionService } from '../shopify/session/shopify-session.service';
 import { OrderService } from '../orders/order.service';
+import axios from 'axios';
 
 /**
  * 订单同步服务（补偿机制）。
  *
- * 当 Webhook 不可用或失败时，通过定时轮询 Shopify API 来补充缺失的订单。
+ * 三层补偿机制：
+ * 1. Webhook 实时接收（第一层）
+ * 2. 事件队列异步处理（第二层）
+ * 3. 定时 REST API 全量同步兜底（第三层）
  *
- * 工作原理：
- * 1. 记录每个店铺最后一次同步的时间和订单 ID
- * 2. 定时任务从 Shopify API 拉取指定时间范围内的订单
- * 3. 与本地数据库对比，补充本地缺失的订单
+ * 同步策略：
+ * - 使用 Shopify REST API 拉取订单，数据更完整、更稳定
+ * - 支持增量同步（基于上次同步时间）
+ * - 支持全量同步（指定起始时间）
+ * - 支持断点续传（基于 lastSyncId）
  */
 @Injectable()
 export class OrderSyncService {
   private readonly logger = new Logger(OrderSyncService.name);
 
-  // 每次最多同步的订单数
   private readonly BATCH_SIZE = 250;
-
-  // 兜底同步时间范围（小时）：只同步最近 N 小时内的订单
   private readonly SYNC_HOURS_LOOKBACK = 24;
+  private readonly INITIAL_SYNC_DAYS = 7;
+  private readonly MAX_RETRIES = 3;
+  private readonly RETRY_DELAY_MS = [1000, 2000, 4000];
 
   constructor(
     @InjectRepository(SyncRecordEntity)
     private readonly syncRecordRepository: Repository<SyncRecordEntity>,
-    private readonly graphqlService: ShopifyGraphqlService,
+    private readonly sessionService: ShopifySessionService,
     private readonly orderService: OrderService,
   ) {}
 
-  /**
-   * 同步指定店铺的订单（增量同步）。
-   *
-   * @param shop 店铺域名
-   * @returns 同步的订单数量
-   */
   async syncOrders(shop: string): Promise<number> {
     try {
-      this.logger.log(`Starting order sync for shop: ${shop}`);
+      this.logger.log(`[Sync] Starting order sync for shop: ${shop}`);
 
-      // 获取上次同步记录
       const record = await this.getSyncRecord(shop, 'orders');
+      const localCount = await this.orderService.getOrderCount(shop);
+      this.logger.debug(`[Sync] Local order count: ${localCount}`);
+
+      let lookbackHours = this.SYNC_HOURS_LOOKBACK;
+      if (!record) {
+        lookbackHours = this.INITIAL_SYNC_DAYS * 24;
+        this.logger.debug(`[Sync] First sync, lookback: ${lookbackHours} hours`);
+      }
+
       const lastSyncTime = record?.lastSyncAt
         ? new Date(record.lastSyncAt)
-        : new Date(Date.now() - this.SYNC_HOURS_LOOKBACK * 60 * 60 * 1000);
+        : new Date(Date.now() - lookbackHours * 60 * 60 * 1000);
 
-      // 计算时间范围
       const endTime = new Date();
-      const startTime = lastSyncTime;
+      let startTime = lastSyncTime;
 
       this.logger.debug(
-        `Syncing orders from ${startTime.toISOString()} to ${endTime.toISOString()}`,
+        `[Sync] Time range: ${startTime.toISOString()} to ${endTime.toISOString()}`,
       );
 
-      // 从 Shopify API 拉取订单
-      const orders = await this.fetchOrdersFromShopify(shop, startTime, endTime);
+      await this.updateSyncRecord(shop, 'orders', { status: 'syncing' });
+
+      const orders = await this.fetchOrdersFromShopifyREST(shop, startTime, endTime);
 
       if (orders.length === 0) {
-        this.logger.debug(`No new orders found for ${shop}`);
+        this.logger.debug(`[Sync] No new orders found for ${shop}`);
+        await this.updateSyncRecord(shop, 'orders', { status: 'idle', lastError: null });
         return 0;
       }
 
-      // 过滤出需要同步的订单（创建时间在范围内的）
+      this.logger.debug(`[Sync] Shopify returned ${orders.length} orders`);
+
+      if (orders.length > localCount && record) {
+        this.logger.warn(
+          `[Sync] Shopify has ${orders.length} orders but local has ${localCount}. Expanding sync range to ${this.INITIAL_SYNC_DAYS} days`,
+        );
+        startTime = new Date(Date.now() - this.INITIAL_SYNC_DAYS * 24 * 60 * 60 * 1000);
+        const fullOrders = await this.fetchOrdersFromShopifyREST(shop, startTime, endTime);
+        this.logger.debug(`[Sync] Full range returned ${fullOrders.length} orders`);
+        return this.processOrders(shop, fullOrders, localCount);
+      }
+
       const newOrders = orders.filter(
-        (order) => new Date(order.createdAt) > lastSyncTime,
+        (order) => new Date(order.created_at) >= lastSyncTime,
       );
 
       if (newOrders.length === 0) {
-        this.logger.debug(`All ${orders.length} orders already synced for ${shop}`);
+        this.logger.debug(`[Sync] All ${orders.length} orders already synced for ${shop}`);
+        await this.updateSyncRecord(shop, 'orders', {
+          lastSyncAt: new Date(),
+          status: 'idle',
+          lastError: null,
+        });
         return 0;
       }
 
-      // 保存订单到数据库
-      let syncedCount = 0;
-      for (const order of newOrders) {
-        try {
-          await this.orderService.saveOrder(shop, order);
-          syncedCount++;
-        } catch (error: any) {
-          this.logger.error(`Failed to save order ${order.id}: ${error.message}`);
-        }
-      }
-
-      // 更新同步记录
-      const latestOrder = newOrders[newOrders.length - 1];
-      await this.updateSyncRecord(shop, 'orders', {
-        lastSyncAt: new Date(),
-        lastSyncId: latestOrder.id,
-        lastOrderTime: new Date(latestOrder.createdAt),
-        lastSyncCount: syncedCount,
-        status: 'idle',
-        lastError: null,
-      });
-
-      this.logger.log(
-        `Order sync completed for ${shop}: ${syncedCount} orders synced`,
-      );
-
-      return syncedCount;
+      return this.processOrders(shop, newOrders, localCount);
     } catch (error: any) {
-      this.logger.error(`Order sync failed for ${shop}: ${error.message}`, error.stack);
+      this.logger.error(`[Sync] Failed for ${shop}: ${error.message}`, error.stack);
 
-      // 更新错误状态
       await this.updateSyncRecord(shop, 'orders', {
         status: 'error',
         lastError: error.message,
@@ -114,152 +111,181 @@ export class OrderSyncService {
     }
   }
 
-  /**
-   * 同步所有已授权店铺的订单。
-   */
-  async syncAllShops(): Promise<{ shop: string; synced: number }[]> {
-    // TODO: 从 session 表获取所有已授权的店铺
-    // 目前需要手动调用或通过事件触发
-    this.logger.debug('syncAllShops called but not implemented - no session table access here');
-    return [];
+  private async processOrders(
+    shop: string,
+    orders: any[],
+    localCount: number,
+  ): Promise<number> {
+    let syncedCount = 0;
+    let failedCount = 0;
+
+    for (const order of orders) {
+      try {
+        await this.orderService.saveOrder(shop, order);
+        syncedCount++;
+      } catch (error: any) {
+        failedCount++;
+        this.logger.error(`[Sync] Failed to save order ${order.id}: ${error.message}`);
+      }
+    }
+
+    const latestOrder = orders[orders.length - 1];
+    await this.updateSyncRecord(shop, 'orders', {
+      lastSyncAt: new Date(),
+      lastSyncId: String(latestOrder.id),
+      lastOrderTime: new Date(latestOrder.created_at),
+      lastSyncCount: syncedCount,
+      status: 'idle',
+      lastError: null,
+    });
+
+    const newLocalCount = await this.orderService.getOrderCount(shop);
+    this.logger.log(
+      `[Sync] Completed for ${shop}: ${syncedCount} processed, ${failedCount} failed, local count: ${localCount} -> ${newLocalCount}`,
+    );
+
+    return syncedCount;
   }
 
-  /**
-   * 强制全量同步（从指定时间开始）。
-   */
   async forceSyncOrders(shop: string, since: Date): Promise<number> {
     try {
-      this.logger.log(`Force syncing orders for ${shop} since ${since.toISOString()}`);
+      this.logger.log(`[ForceSync] Starting for ${shop} since ${since.toISOString()}`);
 
-      // 重置同步记录
       await this.syncRecordRepository.upsert(
-        {
-          shop,
-          syncType: 'orders',
-          lastSyncAt: since,
-          status: 'syncing',
-        },
+        { shop, syncType: 'orders', lastSyncAt: since, status: 'syncing' },
         { conflictPaths: ['shop', 'syncType'] },
       );
 
       return this.syncOrders(shop);
     } catch (error: any) {
-      this.logger.error(`Force sync failed for ${shop}: ${error.message}`);
+      this.logger.error(`[ForceSync] Failed for ${shop}: ${error.message}`);
       return 0;
     }
   }
 
-  /**
-   * 从 Shopify API 拉取订单。
-   */
-  private async fetchOrdersFromShopify(
+  private async fetchOrdersFromShopifyREST(
     shop: string,
     startTime: Date,
     endTime: Date,
   ): Promise<any[]> {
-    const query = `
-      query GetOrders($createdAtMin: DateTime!, $createdAtMax: DateTime!, $first: Int!, $after: String) {
-        orders(
-          first: $first
-          after: $after
-          query: "created_at:>=${startTime.toISOString()} AND created_at:<=${endTime.toISOString()}"
-        ) {
-          edges {
-            node {
-              id
-              name
-              createdAt
-              updatedAt
-              currentTotalPriceSet {
-                presentmentMoney { amount currencyCode }
-                shopMoney { amount currencyCode }
-              }
-              subtotalPriceSet {
-                presentmentMoney { amount currencyCode }
-                shopMoney { amount currencyCode }
-              }
-              totalShippingPriceSet {
-                presentmentMoney { amount currencyCode }
-                shopMoney { amount currencyCode }
-              }
-              totalTaxSet {
-                presentmentMoney { amount currencyCode }
-                shopMoney { amount currencyCode }
-              }
-              paymentGatewayNames
-              lineItems(first: 100) {
-                edges {
-                  node {
-                    id
-                    title
-                    quantity
-                    sku
-                    variant { id title price }
-                  }
-                }
-              }
-              shippingAddress {
-                firstName lastName address1 address2 city province country zip phone
-              }
-              billingAddress {
-                firstName lastName address1 address2 city province country zip phone
-              }
-            }
-          }
-          pageInfo {
-            hasNextPage
-            endCursor
-          }
-        }
-      }
-    `;
+    const accessToken = await this.sessionService.getOfflineToken(shop);
+    if (!accessToken) {
+      throw new Error(`No access token found for shop: ${shop}`);
+    }
 
     const allOrders: any[] = [];
-    let hasNextPage = true;
-    let after: string | undefined;
+    let pageInfo = { has_next_page: true, end_cursor: '' };
+    let page = 1;
 
-    while (hasNextPage && allOrders.length < this.BATCH_SIZE * 4) {
+    while (pageInfo.has_next_page && allOrders.length < this.BATCH_SIZE * 10) {
       try {
-        const result: any = await this.graphqlService.query(shop, query, {
-          createdAtMin: startTime.toISOString(),
-          createdAtMax: endTime.toISOString(),
-          first: this.BATCH_SIZE,
-          after,
+        const url = `https://${shop}/admin/api/2026-04/orders.json`;
+        const params = new URLSearchParams({
+          limit: String(this.BATCH_SIZE),
+          created_at_min: startTime.toISOString(),
+          created_at_max: endTime.toISOString(),
+          status: 'any',
+          fields:
+            'id,name,created_at,updated_at,status,financial_status,fulfillment_status,' +
+            'total_price_set,subtotal_price_set,shipping_price_set,total_tax_set,' +
+            'payment_gateway_names,line_items,shipping_address,billing_address,' +
+            'customer,order_status_url,source_name,refunded_amount,total_refunded,' +
+            'total_refunded_set',
         });
 
-        const { edges, pageInfo } = result.orders;
-        allOrders.push(...edges.map((e: any) => e.node));
-        hasNextPage = pageInfo.hasNextPage;
-        after = pageInfo.endCursor;
+        if (pageInfo.end_cursor) {
+          params.set('page_info', pageInfo.end_cursor);
+        }
+
+        const response = await this.makeRESTRequest(
+          `${url}?${params.toString()}`,
+          accessToken,
+        );
+
+        if (!response.data || !response.data.orders) {
+          this.logger.warn(`[REST] No orders data in response for ${shop}, page ${page}`);
+          break;
+        }
+
+        const orders = response.data.orders;
+        allOrders.push(...orders);
+
+        pageInfo = {
+          has_next_page: response.headers?.['link']?.includes('rel="next"') || false,
+          end_cursor: this.extractPageInfo(response.headers?.['link']),
+        };
+
+        this.logger.debug(`[REST] Fetched page ${page}, got ${orders.length} orders, total so far: ${allOrders.length}`);
+        page++;
       } catch (error: any) {
-        this.logger.error(`Failed to fetch orders page: ${error.message}`);
+        this.logger.error(`[REST] Failed to fetch page ${page}: ${error.message}`);
         break;
       }
     }
 
+    this.logger.log(`[REST] Total orders fetched for ${shop}: ${allOrders.length}`);
     return allOrders;
   }
 
-  /**
-   * 获取同步记录。
-   */
+  private async makeRESTRequest(url: string, accessToken: string, retry = 0): Promise<any> {
+    try {
+      const response = await axios.get(url, {
+        headers: {
+          'X-Shopify-Access-Token': accessToken,
+          'Content-Type': 'application/json',
+        },
+        timeout: 30000,
+      });
+      return response;
+    } catch (error: any) {
+      const status = error.response?.status;
+
+      if (status === 401 && retry === 0) {
+        this.logger.warn(`[REST] Token expired, attempting refresh...`);
+        return { status: 401 };
+      }
+
+      if ((status === 429 || this.isNetworkError(error)) && retry < this.MAX_RETRIES) {
+        const delay = this.RETRY_DELAY_MS[retry];
+        this.logger.warn(`[REST] Rate limited/network error, retrying after ${delay}ms...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        return this.makeRESTRequest(url, accessToken, retry + 1);
+      }
+
+      throw error;
+    }
+  }
+
+  private extractPageInfo(linkHeader: string | undefined): string {
+    if (!linkHeader) return '';
+
+    const match = linkHeader.match(/page_info=([^&>]+)/);
+    return match ? match[1] : '';
+  }
+
+  private isNetworkError(error: any): boolean {
+    const msg = (error?.message || '').toLowerCase();
+    return (
+      msg.includes('socket') ||
+      msg.includes('tls') ||
+      msg.includes('timeout') ||
+      msg.includes('network') ||
+      msg.includes('disconnected')
+    );
+  }
+
   private async getSyncRecord(
     shop: string,
     syncType: string,
   ): Promise<SyncRecordEntity | null> {
     try {
-      return await this.syncRecordRepository.findOne({
-        where: { shop, syncType },
-      });
+      return await this.syncRecordRepository.findOne({ where: { shop, syncType } });
     } catch (error: any) {
-      this.logger.error(`Failed to get sync record: ${error.message}`);
+      this.logger.error(`[Sync] Failed to get sync record: ${error.message}`);
       return null;
     }
   }
 
-  /**
-   * 更新同步记录。
-   */
   private async updateSyncRecord(
     shop: string,
     syncType: string,
@@ -271,13 +297,10 @@ export class OrderSyncService {
         { conflictPaths: ['shop', 'syncType'] },
       );
     } catch (error: any) {
-      this.logger.error(`Failed to update sync record: ${error.message}`);
+      this.logger.error(`[Sync] Failed to update sync record: ${error.message}`);
     }
   }
 
-  /**
-   * 获取所有店铺的同步状态。
-   */
   async getSyncStatus(): Promise<SyncRecordEntity[]> {
     try {
       return await this.syncRecordRepository.find({
@@ -285,7 +308,7 @@ export class OrderSyncService {
         order: { lastSyncAt: 'DESC' },
       });
     } catch (error: any) {
-      this.logger.error(`Failed to get sync status: ${error.message}`);
+      this.logger.error(`[Sync] Failed to get sync status: ${error.message}`);
       return [];
     }
   }

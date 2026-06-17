@@ -1,113 +1,139 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { Cron, Interval, SchedulerRegistry } from '@nestjs/schedule';
 import { OrderSyncService } from './order-sync.service';
 import { WebhookQueueService } from '../webhooks/webhook-queue.service';
 import { ShopSessionEntity } from '../database/entities/shop-session.entity';
+import { SyncRecordEntity } from '../database/entities/sync-record.entity';
 
 /**
- * 定时同步任务。
+ * 定时同步任务调度器（基于 NestJS Schedule 模块）
  *
- * 负责：
- * 1. 定时补偿同步缺失的订单（兜底机制）
- * 2. 清理过期的已处理事件
- * 3. 输出队列统计信息
+ * 三层补偿机制：
+ * 1. Webhook 实时接收 -> 写入队列 -> 异步处理
+ * 2. WebhookQueue 定时轮询（每 30 秒）-> 处理积压事件
+ * 3. OrderSync 定时全量同步（每 5 分钟）-> 兜底补偿缺失订单
+ * 4. Webhook 事件清理（每小时）-> 删除 7 天前的已处理事件
+ *
+ * 使用 @nestjs/schedule 装饰器管理定时任务，框架自动处理：
+ * - 应用启动时自动注册任务
+ * - 应用关闭时自动清理
+ * - 任务抛错不影响其他任务
  */
 @Injectable()
-export class SyncScheduler implements OnModuleInit, OnModuleDestroy {
+export class SyncScheduler implements OnModuleInit {
   private readonly logger = new Logger(SyncScheduler.name);
-
-  // 订单补偿同步间隔（毫秒）：每 5 分钟一次
-  private readonly ORDER_SYNC_INTERVAL_MS = 5 * 60 * 1000;
-
-  // 队列清理间隔（毫秒）：每小时一次
-  private readonly CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
-
-  // 是否正在运行
-  private isRunning = false;
-
-  // 定时器引用
-  private orderSyncTimer: NodeJS.Timeout | null = null;
-  private cleanupTimer: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly orderSyncService: OrderSyncService,
     private readonly webhookQueueService: WebhookQueueService,
+    private readonly schedulerRegistry: SchedulerRegistry,
     @InjectRepository(ShopSessionEntity)
     private readonly sessionRepository: Repository<ShopSessionEntity>,
+    @InjectRepository(SyncRecordEntity)
+    private readonly syncRecordRepository: Repository<SyncRecordEntity>,
   ) {}
 
-  onModuleInit() {
-    this.start();
-  }
-
-  onModuleDestroy() {
-    this.stop();
-  }
-
   /**
-   * 启动定时任务。
+   * 模块初始化：立即执行一次订单同步（首次启动不等待 cron）
    */
-  start(): void {
-    if (this.isRunning) return;
-
-    this.isRunning = true;
-    this.logger.log('Sync scheduler started');
-
-    // 立即执行一次
-    this.runOrderSync();
-
-    // 定时执行
-    this.orderSyncTimer = setInterval(
-      () => this.runOrderSync(),
-      this.ORDER_SYNC_INTERVAL_MS,
-    );
-
-    // 清理任务
-    this.cleanupTimer = setInterval(
-      () => this.runCleanup(),
-      this.CLEANUP_INTERVAL_MS,
-    );
+  async onModuleInit() {
+    this.logger.log('[Scheduler] Initialized with NestJS Schedule');
+    // 启动时立即触发一次订单同步（不阻塞应用启动）
+    setImmediate(() => {
+      this.runOrderSync().catch((err) => {
+        this.logger.error(`[Scheduler] Initial order sync failed: ${err.message}`);
+      });
+    });
   }
 
   /**
-   * 停止定时任务。
+   * 订单同步：每 5 分钟执行一次
+   * cron: 0 [每 5 分钟] * * * *
    */
-  stop(): void {
-    this.isRunning = false;
-
-    if (this.orderSyncTimer) {
-      clearInterval(this.orderSyncTimer);
-      this.orderSyncTimer = null;
-    }
-
-    if (this.cleanupTimer) {
-      clearInterval(this.cleanupTimer);
-      this.cleanupTimer = null;
-    }
-
-    this.logger.log('Sync scheduler stopped');
+  @Cron('0 */5 * * * *', {
+    name: 'orderSync',
+    timeZone: 'Asia/Shanghai',
+  })
+  async handleOrderSyncCron() {
+    await this.runOrderSync();
   }
 
   /**
-   * 执行订单同步。
+   * 队列检查：每 30 秒一次
+   */
+  @Interval('queueCheck', 30 * 1000)
+  async handleQueueCheckInterval() {
+    try {
+      const stats = await this.webhookQueueService.getQueueStats();
+
+      if (stats.pending > 0 || stats.processing > 0) {
+        this.logger.debug(
+          `[Scheduler] Queue stats: pending=${stats.pending}, processing=${stats.processing}, failed=${stats.failed}`,
+        );
+      }
+
+      if (stats.failed > 0) {
+        this.logger.warn(`[Scheduler] ${stats.failed} failed events in queue`);
+      }
+    } catch (error: any) {
+      this.logger.error(`[Scheduler] Queue check failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * 清理任务：每小时一次
+   * 清理 7 天前的已处理事件
+   */
+  @Interval('cleanup', 60 * 60 * 1000)
+  async handleCleanupInterval() {
+    try {
+      this.logger.log('[Scheduler] Running queue cleanup...');
+      const cleaned = await this.webhookQueueService.cleanupOldEvents(7);
+      if (cleaned > 0) {
+        this.logger.log(`[Scheduler] Cleaned up ${cleaned} old completed events`);
+      }
+
+      const stats = await this.webhookQueueService.getQueueStats();
+      this.logger.log(
+        `[Scheduler] Queue stats: pending=${stats.pending}, processing=${stats.processing}, failed=${stats.failed}`,
+      );
+
+      const syncStatus = await this.syncRecordRepository.find({
+        where: { syncType: 'orders' },
+        order: { lastSyncAt: 'DESC' },
+      });
+      if (syncStatus.length > 0) {
+        this.logger.debug(
+          `[Scheduler] Sync status: ${syncStatus
+            .map((s) => `${s.shop}: ${s.status}`)
+            .join(', ')}`,
+        );
+      }
+    } catch (error: any) {
+      this.logger.error(`[Scheduler] Cleanup task failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * 执行订单同步（核心逻辑）
    */
   private async runOrderSync(): Promise<void> {
-    if (!this.isRunning) return;
-
     const startTime = Date.now();
-    this.logger.log('=== Starting scheduled order sync ===');
+    this.logger.log('[Scheduler] === Starting scheduled order sync ===');
 
     try {
-      // 获取所有已授权的店铺
       const sessions = await this.sessionRepository.find({
         where: { sessionType: 'offline' as any },
         select: ['shop'],
       });
 
-      this.logger.log(`Found ${sessions.length} authorized shops`);
+      this.logger.log(`[Scheduler] Found ${sessions.length} authorized shops`);
 
       let totalSynced = 0;
+      let successCount = 0;
+      let failedCount = 0;
       const results: { shop: string; synced: number; error?: string }[] = [];
 
       for (const session of sessions) {
@@ -115,67 +141,51 @@ export class SyncScheduler implements OnModuleInit, OnModuleDestroy {
           const synced = await this.orderSyncService.syncOrders(session.shop);
           results.push({ shop: session.shop, synced });
           totalSynced += synced;
+          successCount++;
         } catch (error: any) {
           results.push({ shop: session.shop, synced: 0, error: error.message });
-          this.logger.error(`Failed to sync orders for ${session.shop}: ${error.message}`);
+          failedCount++;
+          this.logger.error(`[Scheduler] Failed to sync ${session.shop}: ${error.message}`);
         }
       }
 
-      // 输出统计
       const duration = Date.now() - startTime;
-      this.logger.log(
-        `=== Order sync completed: ${totalSynced} orders synced in ${duration}ms ===`,
-      );
+      const summary =
+        `[Scheduler] === Order sync completed ===\n` +
+        `  Duration: ${duration}ms\n` +
+        `  Shops: ${successCount} success, ${failedCount} failed\n` +
+        `  Orders synced: ${totalSynced}`;
+
+      this.logger.log(summary);
 
       if (results.some((r) => r.synced > 0)) {
-        this.logger.debug(
-          `Details: ${results.filter((r) => r.synced > 0).map((r) => `${r.shop}:${r.synced}`).join(', ')}`,
-        );
+        const details = results
+          .filter((r) => r.synced > 0)
+          .map((r) => `${r.shop}:${r.synced}`)
+          .join(', ');
+        this.logger.debug(`[Scheduler] Sync details: ${details}`);
       }
     } catch (error: any) {
-      this.logger.error(`Order sync task failed: ${error.message}`, error.stack);
+      this.logger.error(`[Scheduler] Order sync task failed: ${error.message}`, error.stack);
     }
   }
 
   /**
-   * 执行清理任务。
-   */
-  private async runCleanup(): Promise<void> {
-    if (!this.isRunning) return;
-
-    this.logger.log('Running queue cleanup...');
-
-    try {
-      // 清理 7 天前的已处理事件
-      const cleaned = await this.webhookQueueService.cleanupOldEvents(7);
-      if (cleaned > 0) {
-        this.logger.log(`Cleaned up ${cleaned} old events`);
-      }
-
-      // 输出队列统计
-      const stats = await this.webhookQueueService.getQueueStats();
-      this.logger.log(
-        `Queue stats: pending=${stats.pending}, processing=${stats.processing}, failed=${stats.failed}`,
-      );
-    } catch (error: any) {
-      this.logger.error(`Cleanup task failed: ${error.message}`);
-    }
-  }
-
-  /**
-   * 手动触发同步（用于测试或管理接口）。
+   * 手动触发同步（用于测试或管理接口）
    */
   async manualSync(shop?: string): Promise<{ shop: string; synced: number }[]> {
     if (shop) {
+      this.logger.log(`[Scheduler] Manual sync requested for: ${shop}`);
       const synced = await this.orderSyncService.syncOrders(shop);
       return [{ shop, synced }];
     }
 
-    // 同步所有店铺
     const sessions = await this.sessionRepository.find({
       where: { sessionType: 'offline' as any },
       select: ['shop'],
     });
+
+    this.logger.log(`[Scheduler] Manual sync requested for all ${sessions.length} shops`);
 
     const results: { shop: string; synced: number }[] = [];
     for (const session of sessions) {
@@ -184,5 +194,77 @@ export class SyncScheduler implements OnModuleInit, OnModuleDestroy {
     }
 
     return results;
+  }
+
+  /**
+   * 强制全量同步（回溯最近 7 天）
+   */
+  async forceFullSync(shop: string): Promise<number> {
+    this.logger.log(`[Scheduler] Force full sync requested for: ${shop}`);
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    return this.orderSyncService.forceSyncOrders(shop, since);
+  }
+
+  /**
+   * 获取同步状态概览
+   */
+  async getSyncSummary(): Promise<{
+    shops: { shop: string; status: string; lastSyncAt?: Date; lastOrderTime?: Date; lastSyncCount?: number }[];
+    queueStats: { pending: number; processing: number; failed: number };
+    cronJobs: { name: string }[];
+  }> {
+    const sessions = await this.sessionRepository.find({
+      where: { sessionType: 'offline' as any },
+      select: ['shop'],
+    });
+
+    const syncStatus = await this.orderSyncService.getSyncStatus();
+    const queueStats = await this.webhookQueueService.getQueueStats();
+
+    const shops = sessions.map((session) => {
+      const status = syncStatus.find((s) => s.shop === session.shop);
+      return {
+        shop: session.shop,
+        status: status?.status || 'unknown',
+        lastSyncAt: status?.lastSyncAt || undefined,
+        lastOrderTime: status?.lastOrderTime || undefined,
+        lastSyncCount: status?.lastSyncCount || undefined,
+      };
+    });
+
+    // 获取所有注册的 cron 任务
+    const cronJobs = this.schedulerRegistry.getCronJobs();
+    const cronList: { name: string }[] = [];
+    for (const name of cronJobs.keys()) {
+      cronList.push({ name });
+    }
+
+    return { shops, queueStats, cronJobs: cronList };
+  }
+
+  /**
+   * 动态停止某个 cron 任务
+   */
+  stopJob(name: string): void {
+    try {
+      const job = this.schedulerRegistry.getCronJob(name);
+      job.stop();
+      this.logger.log(`[Scheduler] Stopped cron job: ${name}`);
+    } catch (e: any) {
+      this.logger.warn(`[Scheduler] Failed to stop job ${name}: ${e.message}`);
+    }
+  }
+
+  /**
+   * 动态启动某个 cron 任务
+   */
+  startJob(name: string): void {
+    try {
+      const job = this.schedulerRegistry.getCronJob(name);
+      job.start();
+      this.logger.log(`[Scheduler] Started cron job: ${name}`);
+    } catch (e: any) {
+      this.logger.warn(`[Scheduler] Failed to start job ${name}: ${e.message}`);
+    }
   }
 }

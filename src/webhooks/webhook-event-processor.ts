@@ -30,7 +30,7 @@ export class WebhookEventProcessor implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
-    // this.startProcessing();
+    this.startProcessing();
   }
 
   onModuleDestroy() {

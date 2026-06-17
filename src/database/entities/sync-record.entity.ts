@@ -25,7 +25,7 @@ export class SyncRecordEntity {
   lastSyncAt: Date | null;
 
   /** 最后同步的订单 ID（用于断点续传） */
-  @Column({ name: 'last_sync_id', type: 'bigint', nullable: true, comment: '最后同步的订单 ID（用于断点续传）' })
+  @Column({ name: 'last_sync_id', type: 'varchar', length: 255, nullable: true, comment: '最后同步的订单 ID（用于断点续传）' })
   lastSyncId: string | null;
 
   /** 最后同步的订单时间 */
