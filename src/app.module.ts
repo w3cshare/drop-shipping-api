@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ShopifyModule } from './shopify/shopify.module';
 import { WebhookModule } from './webhooks/webhook.module';
 import { BillingModule } from './billing/billing.module';
@@ -20,6 +21,9 @@ import { AppController } from './app.controller';
       isGlobal: true,
       envFilePath: ['.env', '.env.local', '.env.development', '.env.production'],
     }),
+
+    // 启用 NestJS 内置定时任务调度
+    ScheduleModule.forRoot(),
 
     // TypeORM 数据库配置 - 使用 MySQL
     TypeOrmModule.forRootAsync({
