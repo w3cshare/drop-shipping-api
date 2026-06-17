@@ -2,14 +2,14 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ShopifyModule } from './shopify/shopify.module';
-import { ShopifyClientModule } from './shopify/client/shopify-client.module';
 import { WebhookModule } from './webhooks/webhook.module';
-import { ProductsModule } from './products/products.module';
 import { BillingModule } from './billing/billing.module';
 import { OrdersModule } from './orders/order.module';
+import { ProductsModule } from './products/products.module';
 import { RedisModule } from './database/redis/redis.module';
 import { ShopSessionEntity } from './database/entities/shop-session.entity';
 import { ShopOrderEntity } from './database/entities/order.entity';
+import { ShopProductEntity } from './database/entities/product.entity';
 import { AppController } from './app.controller';
 
 @Module({
@@ -24,7 +24,7 @@ import { AppController } from './app.controller';
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => {
         const isProduction = configService.get<string>('NODE_ENV') === 'production';
-        const entities = [ShopSessionEntity, ShopOrderEntity];
+        const entities = [ShopSessionEntity, ShopOrderEntity, ShopProductEntity];
 
         return {
           type: 'mysql' as const,
@@ -53,14 +53,13 @@ import { AppController } from './app.controller';
       inject: [ConfigService],
     }),
 
-    TypeOrmModule.forFeature([ShopSessionEntity, ShopOrderEntity]),
+    TypeOrmModule.forFeature([ShopSessionEntity, ShopOrderEntity, ShopProductEntity]),
 
     ShopifyModule,
-    ShopifyClientModule,
     WebhookModule,
-    ProductsModule,
     BillingModule,
     OrdersModule,
+    ProductsModule,
     RedisModule,
   ],
   controllers: [AppController],

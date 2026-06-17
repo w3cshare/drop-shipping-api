@@ -9,6 +9,7 @@ import {
 import { Request } from 'express';
 import { ShopifySessionService } from '../shopify/session/shopify-session.service';
 import { OrderService } from '../orders/order.service';
+import { ProductService } from '../products/product.service';
 
 /**
  * Webhook 处理控制器
@@ -37,6 +38,7 @@ export class WebhookController {
   constructor(
     private readonly sessionService: ShopifySessionService,
     private readonly orderService: OrderService,
+    private readonly productService: ProductService,
   ) {}
 
   /**
@@ -142,6 +144,8 @@ export class WebhookController {
 
   /**
    * 处理产品创建 Webhook
+   *
+   * 当 Shopify 创建新产品时触发，将商品数据保存到本地数据库
    */
   @Post('products/create')
   @HttpCode(HttpStatus.OK)
@@ -150,11 +154,12 @@ export class WebhookController {
       const product = req.body;
       const shop = req.headers['x-shopify-shop-domain'] as string;
 
-      this.logger.log(`Product created: ${product.id} from ${shop}`);
+      this.logger.log(`Product created: ${product.id} (${product.title}) from ${shop}`);
 
-      // TODO: 实现产品创建处理逻辑
+      await this.productService.saveProduct(shop, product);
 
-      return { success: true };
+      this.logger.log(`Product ${product.id} saved successfully`);
+      return { success: true, productId: product.id, message: 'Product saved to database' };
     } catch (error: any) {
       this.logger.error(`Failed to handle products/create: ${error.message}`, error.stack);
       return { success: false, error: error.message };
@@ -163,6 +168,8 @@ export class WebhookController {
 
   /**
    * 处理产品更新 Webhook
+   *
+   * 当商品信息更新时触发，同步更新本地数据库
    */
   @Post('products/update')
   @HttpCode(HttpStatus.OK)
@@ -171,11 +178,12 @@ export class WebhookController {
       const product = req.body;
       const shop = req.headers['x-shopify-shop-domain'] as string;
 
-      this.logger.log(`Product updated: ${product.id} from ${shop}`);
+      this.logger.log(`Product updated: ${product.id} (${product.title}) from ${shop}`);
 
-      // TODO: 实现产品更新处理逻辑
+      await this.productService.saveProduct(shop, product);
 
-      return { success: true };
+      this.logger.log(`Product ${product.id} updated successfully`);
+      return { success: true, productId: product.id, message: 'Product updated in database' };
     } catch (error: any) {
       this.logger.error(`Failed to handle products/update: ${error.message}`, error.stack);
       return { success: false, error: error.message };
@@ -184,6 +192,8 @@ export class WebhookController {
 
   /**
    * 处理产品删除 Webhook
+   *
+   * 当商品被删除时触发，从本地数据库移除
    */
   @Post('products/delete')
   @HttpCode(HttpStatus.OK)
@@ -194,9 +204,10 @@ export class WebhookController {
 
       this.logger.log(`Product deleted: ${product.id} from ${shop}`);
 
-      // TODO: 实现产品删除处理逻辑
+      await this.productService.deleteProduct(shop, String(product.id));
 
-      return { success: true };
+      this.logger.log(`Product ${product.id} deleted from database`);
+      return { success: true, productId: product.id, message: 'Product deleted from database' };
     } catch (error: any) {
       this.logger.error(`Failed to handle products/delete: ${error.message}`, error.stack);
       return { success: false, error: error.message };

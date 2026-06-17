@@ -23,6 +23,18 @@ export class ShopOrderEntity {
   /** 订单状态 */
   @Column({ name: 'status', type: 'varchar', length: 50, comment: '订单状态' })
   status: string;
+  
+  /** 订单状态 URL */
+  @Column({ name: 'order_status_url', type: 'varchar', length: 255, nullable: true, comment: '订单状态 URL' })
+  orderStatusUrl: string;
+  
+  /** 订单来源名称 */
+  @Column({ name: 'source_name', type: 'varchar', length: 50, default: '', comment: '订单来源名称' })
+  sourceName: string;
+
+  /** 客户信息（JSON 格式存储） */
+  @Column({ name: 'customer', type: 'text', nullable: true, comment: '客户信息（JSON 格式存储）' })
+  customer: string;
 
   /** 财务状态 */
   @Column({ name: 'financial_status', type: 'varchar', length: 50, comment: '财务状态' })
