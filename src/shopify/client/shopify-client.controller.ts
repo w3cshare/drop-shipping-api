@@ -26,6 +26,38 @@ export class ShopifyClientController {
   constructor(private readonly clientService: ShopifyClientService) {}
 
   /**
+   * 获取店铺信息（REST）
+   */
+  @Get('shop')
+  async getShop(@Req() req: Request) {
+    try {
+      const shopify = (req as any).shopify;
+      const shop = shopify.shop;
+
+      this.logger.log(`[REST] Fetching shop info for shop: ${shop}`);
+
+      const result = await this.clientService.getShopRest(shop) as any;
+
+      // REST API 返回结构: { body: { shop: {...} }, ... }
+      const shopInfo = result?.body?.shop || result?.shop || result;
+
+      return {
+        success: true,
+        api: 'REST',
+        shop,
+        data: shopInfo,
+      };
+    } catch (error: any) {
+      this.logger.error(`[REST] Failed to fetch shop info: ${error.message}`, error.stack);
+      return {
+        success: false,
+        api: 'REST',
+        error: error.message,
+      };
+    }
+  }
+
+  /**
    * 获取产品列表（REST）
    */
   @Get('products')

@@ -124,6 +124,11 @@ export class ShopifyClientService {
     return null;
   }
 
+  /** 获取店铺信息（REST） */
+  async getShopRest(shop: string): Promise<any> {
+    return this.adminApiRequest<any>(shop, 'shop.json', 'GET');
+  }
+
   /** 获取产品列表（REST） */
   async getProductsRest(shop: string, limit: number = 50): Promise<any> {
     return this.adminApiRequest<any>(shop, 'products.json', 'GET', { limit });
