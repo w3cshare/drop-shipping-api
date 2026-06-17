@@ -41,10 +41,10 @@ import { AppController } from './app.controller';
           // cache: {
           //   type: "redis",
           //   options: {
-          //     host: "192.168.1.5",
-          //     port: 6379,
-          //     username: 'default',
-          //     password: "6eHZOIXKBEu2Bfz3"
+          //     host: configService.get<string>('REDIS_HOST', 'localhost'),
+          //     port: configService.get<number>('REDIS_PORT', 6379),
+          //     username: configService.get<string>('REDIS_USERNAME'),
+          //     password: configService.get<string>('REDIS_PASSWORD')
           //   },
           //   duration: 60000
           // }
