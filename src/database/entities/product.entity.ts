@@ -1,4 +1,4 @@
-import { Entity, Column, PrimaryGeneratedColumn, PrimaryColumn, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
+import { Entity, Unique, Column, PrimaryGeneratedColumn, PrimaryColumn, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
 
 /**
  * Shopify 商品实体
@@ -6,6 +6,7 @@ import { Entity, Column, PrimaryGeneratedColumn, PrimaryColumn, CreateDateColumn
  * 存储来自 Shopify Webhook 的商品（Product）数据
  */
 @Entity({ name: 'b_3rd_products', comment: 'Shopify 商品表 - 存储来自 Shopify Webhook 的商品数据' })
+@Unique(['productId', 'shop'])
 export class ShopProductEntity {
   /** 自增 ID */
   @PrimaryGeneratedColumn({ name: 'id', comment: '自增 ID' })
