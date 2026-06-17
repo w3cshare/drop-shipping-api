@@ -3,26 +3,22 @@ import { Request } from 'express';
 import { ShopifyAuthGuard } from '../shopify/auth/auth.guard';
 import { ProductService } from './product.service';
 import { ProductFiltersDto } from './product.dto';
-import { ShopService } from '../shop/shop.service';
 
 /**
- * 商品管理接口（直接从数据库读取）
+ * 商品管理接口（数据库直读）
  *
- * 路由前缀：/api/admin
- * 鉴权：    ShopifyAuthGuard（通过 ?shop=xxx 或 Bearer token 绑定店铺上下文）
+ * 列表/详情查询：ProductService 内部已 LEFT JOIN b_3rd_shops，
+ * 一条 SQL 同时返回商品+店铺信息，避免 N+1 查询。
  */
 @Controller('api/admin')
 @UseGuards(ShopifyAuthGuard)
 export class ProductsController {
   private readonly logger = new Logger(ProductsController.name);
 
-  constructor(
-    private readonly productService: ProductService,
-    private readonly shopService: ShopService,
-  ) {}
+  constructor(private readonly productService: ProductService) {}
 
   /**
-   * 商品列表（从数据库直读）
+   * 商品列表（分页 + 过滤）
    */
   @Get('products')
   async getProducts(
@@ -55,27 +51,12 @@ export class ProductsController {
         filters,
       );
 
-      // 读取店铺信息，统一附加到每条商品
-      const shopEntity = await this.shopService.getByShop(shop);
-      const shopInfo = shopEntity
-        ? {
-            name: shopEntity.name,
-            email: shopEntity.email,
-            domain: shopEntity.domain,
-            currency_code: shopEntity.currencyCode,
-            country_code: shopEntity.countryCode,
-          }
-        : null;
-
-      const items = result.items.map((item) =>
-        this.productService.toResponseDto(item as any, shopInfo),
-      );
       const totalPages = Math.ceil(result.total / (parseInt(pageSize, 10) || 20));
 
       return {
         success: true,
         shop,
-        data: items,
+        data: result.items,
         pagination: {
           page: result.page,
           page_size: result.pageSize,
@@ -102,26 +83,15 @@ export class ProductsController {
         return { success: false, error: 'Product ID is required' };
       }
 
-      const product = await this.productService.findProductById(shop, productId);
-      if (!product) {
+      const productDto = await this.productService.findProductById(shop, productId);
+      if (!productDto) {
         return { success: false, error: 'Product not found' };
       }
-
-      const shopEntity = await this.shopService.getByShop(shop);
-      const shopInfo = shopEntity
-        ? {
-            name: shopEntity.name,
-            email: shopEntity.email,
-            domain: shopEntity.domain,
-            currency_code: shopEntity.currencyCode,
-            country_code: shopEntity.countryCode,
-          }
-        : null;
 
       return {
         success: true,
         shop,
-        data: this.productService.toResponseDto(product, shopInfo),
+        data: productDto,
       };
     } catch (error: any) {
       this.logger.error(`[admin] Failed to fetch product detail: ${error.message}`, error.stack);

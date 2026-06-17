@@ -182,7 +182,46 @@ export class OrderService {
   }
 
   /**
-   * 分页查询订单（数据库直读，支持多条件过滤）
+   * 构建订单基础查询（共享给列表/详情/计数）
+   *
+   * 使用 LEFT JOIN b_3rd_shops 把店铺信息在一条 SQL 内返回，
+   * 避免 N+1 查询与 Controller 层二次遍历回填。
+   */
+  private buildOrderBaseQuery(shop: string, filters: OrderFiltersDto = {}) {
+    const qb = this.orderRepository
+      .createQueryBuilder('o')
+      .leftJoin('b_3rd_shops', 's', 's.shop = o.shop')
+      .where('o.shop = :shop', { shop });
+
+    if (filters.status) {
+      qb.andWhere('o.status = :status', { status: filters.status });
+    }
+    if (filters.financialStatus) {
+      qb.andWhere('o.financial_status = :financialStatus', { financialStatus: filters.financialStatus });
+    }
+    if (filters.fulfillmentStatus) {
+      qb.andWhere('o.fulfillment_status = :fulfillmentStatus', { fulfillmentStatus: filters.fulfillmentStatus });
+    }
+    if (filters.startDate) {
+      qb.andWhere('o.created_time >= :startDate', { startDate: filters.startDate });
+    }
+    if (filters.endDate) {
+      qb.andWhere('o.created_time <= :endDate', { endDate: filters.endDate });
+    }
+    if (filters.keyword) {
+      const kw = `%${filters.keyword}%`;
+      qb.andWhere(
+        new Brackets((qb) => {
+          qb.where('o.name LIKE :kw', { kw }).orWhere('o.order_id LIKE :kw', { kw });
+        }),
+      );
+    }
+
+    return qb;
+  }
+
+  /**
+   * 分页查询订单（LEFT JOIN 店铺表，一条 SQL 返回订单+店铺信息）
    *
    * @param shop  店铺域名
    * @param page  页码，从 1 开始
@@ -199,40 +238,88 @@ export class OrderService {
     const safePageSize = Math.min(100, Math.max(1, pageSize));
     const offset = (safePage - 1) * safePageSize;
 
-    const query = this.orderRepository.createQueryBuilder('o').where('o.shop = :shop', { shop });
-
-    if (filters.status) {
-      query.andWhere('o.status = :status', { status: filters.status });
-    }
-    if (filters.financialStatus) {
-      query.andWhere('o.financial_status = :financialStatus', { financialStatus: filters.financialStatus });
-    }
-    if (filters.fulfillmentStatus) {
-      query.andWhere('o.fulfillment_status = :fulfillmentStatus', { fulfillmentStatus: filters.fulfillmentStatus });
-    }
-    if (filters.startDate) {
-      query.andWhere('o.created_time >= :startDate', { startDate: filters.startDate });
-    }
-    if (filters.endDate) {
-      query.andWhere('o.created_time <= :endDate', { endDate: filters.endDate });
-    }
-    if (filters.keyword) {
-      const kw = `%${filters.keyword}%`;
-      query.andWhere(
-        new Brackets((qb) => {
-          qb.where('o.name LIKE :kw', { kw }).orWhere('o.order_id LIKE :kw', { kw });
-        }),
-      );
-    }
-
-    const [items, total] = await query
+    const listQb = this.buildOrderBaseQuery(shop, filters)
+      .select([
+        'o.id AS o_id',
+        'o.order_id AS o_order_id',
+        'o.name AS o_name',
+        'o.shop AS o_shop',
+        'o.status AS o_status',
+        'o.order_status_url AS o_order_status_url',
+        'o.source_name AS o_source_name',
+        'o.customer AS o_customer',
+        'o.financial_status AS o_financial_status',
+        'o.fulfillment_status AS o_fulfillment_status',
+        'o.total_price_set AS o_total_price_set',
+        'o.subtotal_price_set AS o_subtotal_price_set',
+        'o.shipping_price_set AS o_shipping_price_set',
+        'o.total_tax_set AS o_total_tax_set',
+        'o.total_refunded_set AS o_total_refunded_set',
+        'o.refunded AS o_refunded',
+        'o.payment_gateway_names AS o_payment_gateway_names',
+        'o.line_items AS o_line_items',
+        'o.shipping_address AS o_shipping_address',
+        'o.billing_address AS o_billing_address',
+        'o.type AS o_type',
+        'o.created_time AS o_created_time',
+        'o.modified_time AS o_modified_time',
+        'o.db_created_time AS o_db_created_time',
+        'o.db_modified_time AS o_db_modified_time',
+        's.name AS s_name',
+        's.email AS s_email',
+        's.domain AS s_domain',
+        's.currency_code AS s_currency_code',
+        's.country_code AS s_country_code',
+      ])
       .orderBy('o.created_time', 'DESC')
-      .take(safePageSize)
-      .skip(offset)
-      .getManyAndCount();
+      .limit(safePageSize)
+      .offset(offset);
+
+    const countQb = this.buildOrderBaseQuery(shop, filters);
+
+    const [rawList, total] = await Promise.all([listQb.getRawMany(), countQb.getCount()]);
+
+    const items = rawList.map((row: any) =>
+      this.toResponseDto(
+        {
+          id: row.o_id,
+          orderId: row.o_order_id,
+          name: row.o_name,
+          shop: row.o_shop,
+          status: row.o_status,
+          orderStatusUrl: row.o_order_status_url,
+          sourceName: row.o_source_name,
+          customer: row.o_customer,
+          financialStatus: row.o_financial_status,
+          fulfillmentStatus: row.o_fulfillment_status,
+          totalPriceSet: row.o_total_price_set,
+          subtotalPriceSet: row.o_subtotal_price_set,
+          shippingPriceSet: row.o_shipping_price_set,
+          totalTaxSet: row.o_total_tax_set,
+          totalRefundedSet: row.o_total_refunded_set,
+          refunded: row.o_refunded === 1 || row.o_refunded === true,
+          paymentGatewayNames: row.o_payment_gateway_names,
+          lineItems: row.o_line_items,
+          shippingAddress: row.o_shipping_address,
+          billingAddress: row.o_billing_address,
+          orderType: row.o_type,
+          createdAt: row.o_created_time,
+          updatedAt: row.o_modified_time,
+          dbCreatedAt: row.o_db_created_time,
+          dbUpdatedAt: row.o_db_modified_time,
+        } as ShopOrderEntity,
+        {
+          name: row.s_name ?? null,
+          email: row.s_email ?? null,
+          domain: row.s_domain ?? null,
+          currency_code: row.s_currency_code ?? null,
+          country_code: row.s_country_code ?? null,
+        },
+      ),
+    );
 
     return {
-      items: items.map((o) => this.toResponseDto(o)),
+      items,
       total,
       page: safePage,
       pageSize: safePageSize,
@@ -240,10 +327,86 @@ export class OrderService {
   }
 
   /**
-   * 按订单 ID 获取一条（含 shop 隔离）
+   * 按订单 ID 获取一条（LEFT JOIN 店铺表，含 shop 隔离）
    */
-  async findOrderById(shop: string, orderId: string): Promise<ShopOrderEntity | null> {
-    return this.orderRepository.findOne({ where: { shop, orderId: orderId } });
+  async findOrderById(shop: string, orderId: string): Promise<OrderResponseDto | null> {
+    const row = await this.orderRepository
+      .createQueryBuilder('o')
+      .leftJoin('b_3rd_shops', 's', 's.shop = o.shop')
+      .where('o.shop = :shop', { shop })
+      .andWhere('o.order_id = :orderId', { orderId })
+      .select([
+        'o.id AS o_id',
+        'o.order_id AS o_order_id',
+        'o.name AS o_name',
+        'o.shop AS o_shop',
+        'o.status AS o_status',
+        'o.order_status_url AS o_order_status_url',
+        'o.source_name AS o_source_name',
+        'o.customer AS o_customer',
+        'o.financial_status AS o_financial_status',
+        'o.fulfillment_status AS o_fulfillment_status',
+        'o.total_price_set AS o_total_price_set',
+        'o.subtotal_price_set AS o_subtotal_price_set',
+        'o.shipping_price_set AS o_shipping_price_set',
+        'o.total_tax_set AS o_total_tax_set',
+        'o.total_refunded_set AS o_total_refunded_set',
+        'o.refunded AS o_refunded',
+        'o.payment_gateway_names AS o_payment_gateway_names',
+        'o.line_items AS o_line_items',
+        'o.shipping_address AS o_shipping_address',
+        'o.billing_address AS o_billing_address',
+        'o.type AS o_type',
+        'o.created_time AS o_created_time',
+        'o.modified_time AS o_modified_time',
+        'o.db_created_time AS o_db_created_time',
+        'o.db_modified_time AS o_db_modified_time',
+        's.name AS s_name',
+        's.email AS s_email',
+        's.domain AS s_domain',
+        's.currency_code AS s_currency_code',
+        's.country_code AS s_country_code',
+      ])
+      .getRawOne();
+
+    if (!row) return null;
+
+    return this.toResponseDto(
+      {
+        id: row.o_id,
+        orderId: row.o_order_id,
+        name: row.o_name,
+        shop: row.o_shop,
+        status: row.o_status,
+        orderStatusUrl: row.o_order_status_url,
+        sourceName: row.o_source_name,
+        customer: row.o_customer,
+        financialStatus: row.o_financial_status,
+        fulfillmentStatus: row.o_fulfillment_status,
+        totalPriceSet: row.o_total_price_set,
+        subtotalPriceSet: row.o_subtotal_price_set,
+        shippingPriceSet: row.o_shipping_price_set,
+        totalTaxSet: row.o_total_tax_set,
+        totalRefundedSet: row.o_total_refunded_set,
+        refunded: row.o_refunded === 1 || row.o_refunded === true,
+        paymentGatewayNames: row.o_payment_gateway_names,
+        lineItems: row.o_line_items,
+        shippingAddress: row.o_shipping_address,
+        billingAddress: row.o_billing_address,
+        orderType: row.o_type,
+        createdAt: row.o_created_time,
+        updatedAt: row.o_modified_time,
+        dbCreatedAt: row.o_db_created_time,
+        dbUpdatedAt: row.o_db_modified_time,
+      } as ShopOrderEntity,
+      {
+        name: row.s_name ?? null,
+        email: row.s_email ?? null,
+        domain: row.s_domain ?? null,
+        currency_code: row.s_currency_code ?? null,
+        country_code: row.s_country_code ?? null,
+      },
+    );
   }
 
   /**

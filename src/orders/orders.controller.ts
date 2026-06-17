@@ -3,31 +3,22 @@ import { Request } from 'express';
 import { ShopifyAuthGuard } from '../shopify/auth/auth.guard';
 import { OrderService } from './order.service';
 import { OrderFiltersDto } from './order.dto';
-import { ShopService } from '../shop/shop.service';
 
 /**
- * 订单管理接口（直接从数据库读取）
+ * 订单管理接口（数据库直读）
  *
- * 路由前缀：/admin/api
- * 鉴权：    ShopifyAuthGuard（通过 ?shop=xxx 或 Bearer token 绑定店铺上下文）
- *
- * 接口：
- *   GET /admin/api/orders           订单列表（分页 + 过滤）
- *   GET /admin/api/orders/:id       订单详情
- *   GET /admin/api/orders/stats     订单统计
+ * 列表/详情查询：OrderService 内部已 LEFT JOIN b_3rd_shops，
+ * 一条 SQL 同时返回订单+店铺信息，避免 N+1 查询。
  */
 @Controller('api/admin')
 @UseGuards(ShopifyAuthGuard)
 export class OrdersController {
   private readonly logger = new Logger(OrdersController.name);
 
-  constructor(
-    private readonly orderService: OrderService,
-    private readonly shopService: ShopService,
-  ) {}
+  constructor(private readonly orderService: OrderService) {}
 
   /**
-   * 订单列表（从数据库直读）
+   * 订单列表（分页 + 过滤）
    */
   @Get('orders')
   async getOrders(
@@ -60,27 +51,12 @@ export class OrdersController {
         filters,
       );
 
-      // 读取店铺信息，统一附加到每条订单
-      const shopEntity = await this.shopService.getByShop(shop);
-      const shopInfo = shopEntity
-        ? {
-            name: shopEntity.name,
-            email: shopEntity.email,
-            domain: shopEntity.domain,
-            currency_code: shopEntity.currencyCode,
-            country_code: shopEntity.countryCode,
-          }
-        : null;
-
-      const items = result.items.map((item) =>
-        this.orderService.toResponseDto(item as any, shopInfo),
-      );
       const totalPages = Math.ceil(result.total / (parseInt(pageSize, 10) || 20));
 
       return {
         success: true,
         shop,
-        data: items,
+        data: result.items,
         pagination: {
           page: result.page,
           page_size: result.pageSize,
@@ -107,26 +83,15 @@ export class OrdersController {
         return { success: false, error: 'Order ID is required' };
       }
 
-      const order = await this.orderService.findOrderById(shop, orderId);
-      if (!order) {
+      const orderDto = await this.orderService.findOrderById(shop, orderId);
+      if (!orderDto) {
         return { success: false, error: 'Order not found' };
       }
-
-      const shopEntity = await this.shopService.getByShop(shop);
-      const shopInfo = shopEntity
-        ? {
-            name: shopEntity.name,
-            email: shopEntity.email,
-            domain: shopEntity.domain,
-            currency_code: shopEntity.currencyCode,
-            country_code: shopEntity.countryCode,
-          }
-        : null;
 
       return {
         success: true,
         shop,
-        data: this.orderService.toResponseDto(order, shopInfo),
+        data: orderDto,
       };
     } catch (error: any) {
       this.logger.error(`[admin] Failed to fetch order detail: ${error.message}`, error.stack);
@@ -151,18 +116,9 @@ export class OrdersController {
 
       const stats = await this.orderService.getOrderStats(shop, filters);
 
-      const shopEntity = await this.shopService.getByShop(shop);
-      const shopInfo = shopEntity
-        ? {
-            shop,
-            name: shopEntity.name,
-            currency_code: shopEntity.currencyCode,
-          }
-        : { shop, name: null, currency_code: null };
-
       return {
         success: true,
-        shop: shopInfo,
+        shop,
         data: stats,
       };
     } catch (error: any) {

@@ -86,14 +86,47 @@ export class ProductService {
   }
 
   /**
-   * 按商品 ID 获取一条（含 shop 隔离）
+   * 构建商品基础查询（共享给列表/详情/计数）
+   *
+   * LEFT JOIN b_3rd_shops，一条 SQL 完成商品+店铺信息查询。
    */
-  async findProductById(shop: string, productId: string): Promise<ShopProductEntity | null> {
-    return this.productRepository.findOne({ where: { shop, productId: productId } });
+  private buildProductBaseQuery(shop: string, filters: ProductFiltersDto = {}) {
+    const qb = this.productRepository
+      .createQueryBuilder('p')
+      .leftJoin('b_3rd_shops', 's', 's.shop = p.shop')
+      .where('p.shop = :shop', { shop });
+
+    if (filters.status) {
+      qb.andWhere('p.status = :status', { status: filters.status });
+    }
+    if (filters.productType) {
+      qb.andWhere('p.product_type = :productType', { productType: filters.productType });
+    }
+    if (filters.vendor) {
+      qb.andWhere('p.vendor = :vendor', { vendor: filters.vendor });
+    }
+    if (filters.startDate) {
+      qb.andWhere('p.created_time >= :startDate', { startDate: filters.startDate });
+    }
+    if (filters.endDate) {
+      qb.andWhere('p.created_time <= :endDate', { endDate: filters.endDate });
+    }
+    if (filters.keyword) {
+      const kw = `%${filters.keyword}%`;
+      qb.andWhere(
+        new Brackets((qb) => {
+          qb.where('p.title LIKE :kw', { kw })
+            .orWhere('p.handle LIKE :kw', { kw })
+            .orWhere('p.tags LIKE :kw', { kw });
+        }),
+      );
+    }
+
+    return qb;
   }
 
   /**
-   * 分页查询商品（数据库直读，支持多条件过滤）
+   * 分页查询商品（LEFT JOIN 店铺表，一条 SQL 返回商品+店铺信息）
    */
   async findProductsWithPagination(
     shop: string,
@@ -105,46 +138,145 @@ export class ProductService {
     const safePageSize = Math.min(100, Math.max(1, pageSize));
     const offset = (safePage - 1) * safePageSize;
 
-    const query = this.productRepository.createQueryBuilder('p').where('p.shop = :shop', { shop });
+    const commonSelect = [
+      'p.id AS p_id',
+      'p.product_id AS p_product_id',
+      'p.title AS p_title',
+      'p.shop AS p_shop',
+      'p.handle AS p_handle',
+      'p.description AS p_description',
+      'p.vendor AS p_vendor',
+      'p.product_type AS p_product_type',
+      'p.status AS p_status',
+      'p.tags AS p_tags',
+      'p.images AS p_images',
+      'p.variants AS p_variants',
+      'p.options AS p_options',
+      'p.created_time AS p_created_time',
+      'p.modified_time AS p_modified_time',
+      'p.db_created_time AS p_db_created_time',
+      'p.db_modified_time AS p_db_modified_time',
+      's.name AS s_name',
+      's.email AS s_email',
+      's.domain AS s_domain',
+      's.currency_code AS s_currency_code',
+      's.country_code AS s_country_code',
+    ];
 
-    if (filters.status) {
-      query.andWhere('p.status = :status', { status: filters.status });
-    }
-    if (filters.productType) {
-      query.andWhere('p.product_type = :productType', { productType: filters.productType });
-    }
-    if (filters.vendor) {
-      query.andWhere('p.vendor = :vendor', { vendor: filters.vendor });
-    }
-    if (filters.startDate) {
-      query.andWhere('p.created_time >= :startDate', { startDate: filters.startDate });
-    }
-    if (filters.endDate) {
-      query.andWhere('p.created_time <= :endDate', { endDate: filters.endDate });
-    }
-    if (filters.keyword) {
-      const kw = `%${filters.keyword}%`;
-      query.andWhere(
-        new Brackets((qb) => {
-          qb.where('p.title LIKE :kw', { kw })
-            .orWhere('p.handle LIKE :kw', { kw })
-            .orWhere('p.tags LIKE :kw', { kw });
-        }),
-      );
-    }
-
-    const [items, total] = await query
+    const listQb = this.buildProductBaseQuery(shop, filters)
+      .select(commonSelect)
       .orderBy('p.created_time', 'DESC')
-      .take(safePageSize)
-      .skip(offset)
-      .getManyAndCount();
+      .limit(safePageSize)
+      .offset(offset);
+
+    const countQb = this.buildProductBaseQuery(shop, filters);
+
+    const [rawList, total] = await Promise.all([listQb.getRawMany(), countQb.getCount()]);
+
+    const items = rawList.map((row: any) =>
+      this.toResponseDto(
+        {
+          id: row.p_id,
+          productId: row.p_product_id,
+          title: row.p_title,
+          shop: row.p_shop,
+          handle: row.p_handle,
+          description: row.p_description,
+          vendor: row.p_vendor,
+          productType: row.p_product_type,
+          status: row.p_status,
+          tags: row.p_tags,
+          images: row.p_images,
+          variants: row.p_variants,
+          options: row.p_options,
+          createdAt: row.p_created_time,
+          updatedAt: row.p_modified_time,
+          dbCreatedAt: row.p_db_created_time,
+          dbUpdatedAt: row.p_db_modified_time,
+        } as ShopProductEntity,
+        {
+          name: row.s_name ?? null,
+          email: row.s_email ?? null,
+          domain: row.s_domain ?? null,
+          currency_code: row.s_currency_code ?? null,
+          country_code: row.s_country_code ?? null,
+        },
+      ),
+    );
 
     return {
-      items: items.map((p) => this.toResponseDto(p)),
+      items,
       total,
       page: safePage,
       pageSize: safePageSize,
     };
+  }
+
+  /**
+   * 按商品 ID 获取一条（LEFT JOIN 店铺表，含 shop 隔离）
+   */
+  async findProductById(shop: string, productId: string): Promise<ProductResponseDto | null> {
+    const row = await this.productRepository
+      .createQueryBuilder('p')
+      .leftJoin('b_3rd_shops', 's', 's.shop = p.shop')
+      .where('p.shop = :shop', { shop })
+      .andWhere('p.product_id = :productId', { productId })
+      .select([
+        'p.id AS p_id',
+        'p.product_id AS p_product_id',
+        'p.title AS p_title',
+        'p.shop AS p_shop',
+        'p.handle AS p_handle',
+        'p.description AS p_description',
+        'p.vendor AS p_vendor',
+        'p.product_type AS p_product_type',
+        'p.status AS p_status',
+        'p.tags AS p_tags',
+        'p.images AS p_images',
+        'p.variants AS p_variants',
+        'p.options AS p_options',
+        'p.created_time AS p_created_time',
+        'p.modified_time AS p_modified_time',
+        'p.db_created_time AS p_db_created_time',
+        'p.db_modified_time AS p_db_modified_time',
+        's.name AS s_name',
+        's.email AS s_email',
+        's.domain AS s_domain',
+        's.currency_code AS s_currency_code',
+        's.country_code AS s_country_code',
+      ])
+      .getRawOne();
+
+    if (!row) return null;
+
+    return this.toResponseDto(
+      {
+        id: row.p_id,
+        productId: row.p_product_id,
+        title: row.p_title,
+        shop: row.p_shop,
+        handle: row.p_handle,
+        description: row.p_description,
+        vendor: row.p_vendor,
+        productType: row.p_product_type,
+        status: row.p_status,
+        tags: row.p_tags,
+        images: row.p_images,
+        variants: row.p_variants,
+        options: row.p_options,
+        createdAt: row.p_created_time,
+        updatedAt: row.p_modified_time,
+        dbCreatedAt: row.p_db_created_time,
+        dbUpdatedAt: row.p_db_modified_time,
+      } as ShopProductEntity,
+      {
+        name: row.s_name ?? null,
+        email: row.s_email ?? null,
+        domain: row.s_domain ?? null,
+        currency_code: row.s_currency_code ?? null,
+        country_code: row.s_country_code ?? null,
+      },
+    );
   }
 
   /**
