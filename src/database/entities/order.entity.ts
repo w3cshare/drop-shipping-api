@@ -1,4 +1,4 @@
-import { Entity, Column, PrimaryColumn, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, PrimaryColumn, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
 
 /**
  * Shopify 订单实体
@@ -7,9 +7,14 @@ import { Entity, Column, PrimaryColumn, CreateDateColumn, UpdateDateColumn, Inde
  */
 @Entity({ name: 'b_3rd_orders', comment: 'Shopify 订单表 - 存储来自 Shopify Webhook 的订单数据' })
 export class ShopOrderEntity {
+  /** 自增 ID */
+  @PrimaryGeneratedColumn({ name: 'id', comment: '自增 ID' })
+  id: number;
+
   /** Shopify 订单 ID */
-  @PrimaryColumn({ type: 'bigint', comment: 'Shopify 订单 ID' })
-  id: string;
+  @Index()
+  @Column({ name: 'order_id', type: 'bigint', comment: 'Shopify 订单 ID' })
+  orderId: string;
 
   /** 店铺域名 */
   @Index()
@@ -60,13 +65,22 @@ export class ShopOrderEntity {
   @Column({ name: 'total_tax_set', type: 'text', comment: '税费（JSON 格式存储）' })
   totalTaxSet: string;
 
+  @Column({ name: 'is_active', type: 'tinyint', default: 1, comment: '是否启用' })
+  isActive: number;
+
   /** 创建时间 */
-  @Column({ name: 'created_time', type: 'datetime', comment: '创建时间' })
+  @CreateDateColumn({ name: 'created_time', type: 'datetime', comment: '创建时间' })
   createdAt: Date;
 
   /** 更新时间 */
-  @Column({ name: 'modified_time', type: 'datetime', comment: '更新时间' })
+  @UpdateDateColumn({ name: 'modified_time', type: 'datetime', comment: '更新时间' })
   updatedAt: Date;
+
+  @Column({ name: 'created_user', type: 'varchar', default: '', length: 255, nullable: true, comment: '创建用户' })
+  createdUser: string | null;
+  
+  @Column({ name: 'modified_user', type: 'varchar', default: '', length: 255, nullable: true, comment: '更新用户' })
+  modifiedUser: string | null;
 
   /** 支付网关 */
   @Column({ name: 'payment_gateway_names', type: 'varchar', length: 100, nullable: true, comment: '支付网关' })

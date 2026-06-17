@@ -10,6 +10,8 @@ import { RedisModule } from './database/redis/redis.module';
 import { ShopSessionEntity } from './database/entities/shop-session.entity';
 import { ShopOrderEntity } from './database/entities/order.entity';
 import { ShopProductEntity } from './database/entities/product.entity';
+import { UserEntity } from './database/entities/user.entity';
+import { UserAuthModule } from './auth/user-auth.module';
 import { AppController } from './app.controller';
 
 @Module({
@@ -24,7 +26,7 @@ import { AppController } from './app.controller';
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => {
         const isProduction = configService.get<string>('NODE_ENV') === 'production';
-        const entities = [ShopSessionEntity, ShopOrderEntity, ShopProductEntity];
+        const entities = [ShopSessionEntity, ShopOrderEntity, ShopProductEntity, UserEntity];
 
         return {
           type: 'mysql' as const,
@@ -53,7 +55,7 @@ import { AppController } from './app.controller';
       inject: [ConfigService],
     }),
 
-    TypeOrmModule.forFeature([ShopSessionEntity, ShopOrderEntity, ShopProductEntity]),
+    TypeOrmModule.forFeature([ShopSessionEntity, ShopOrderEntity, ShopProductEntity, UserEntity]),
 
     ShopifyModule,
     WebhookModule,
@@ -61,6 +63,7 @@ import { AppController } from './app.controller';
     OrdersModule,
     ProductsModule,
     RedisModule,
+    UserAuthModule,
   ],
   controllers: [AppController],
 })
