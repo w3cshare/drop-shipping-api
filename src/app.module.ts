@@ -12,6 +12,8 @@ import { ShopOrderEntity } from './database/entities/order.entity';
 import { PendingEventEntity } from './database/entities/pending-event.entity';
 import { SyncRecordEntity } from './database/entities/sync-record.entity';
 import { ShopProductEntity } from './database/entities/product.entity';
+import { UserEntity } from './database/entities/user.entity';
+import { UserAuthModule } from './auth/user-auth.module';
 import { AppController } from './app.controller';
 
 @Module({
@@ -26,13 +28,7 @@ import { AppController } from './app.controller';
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => {
         const isProduction = configService.get<string>('NODE_ENV') === 'production';
-        const entities = [
-          ShopSessionEntity,
-          ShopOrderEntity,
-          ShopProductEntity,
-          PendingEventEntity,
-          SyncRecordEntity,
-        ];
+        const entities = [ShopSessionEntity, ShopOrderEntity, ShopProductEntity, UserEntity, PendingEventEntity, SyncRecordEntity];
 
         return {
           type: 'mysql' as const,
@@ -61,13 +57,7 @@ import { AppController } from './app.controller';
       inject: [ConfigService],
     }),
 
-    TypeOrmModule.forFeature([
-      ShopSessionEntity,
-      ShopOrderEntity,
-      ShopProductEntity,
-      PendingEventEntity,
-      SyncRecordEntity,
-    ]),
+    TypeOrmModule.forFeature([ShopSessionEntity, ShopOrderEntity, ShopProductEntity, UserEntity, PendingEventEntity, SyncRecordEntity]),
 
     ShopifyModule,
     WebhookModule,
@@ -75,6 +65,7 @@ import { AppController } from './app.controller';
     OrdersModule,
     ProductsModule,
     RedisModule,
+    UserAuthModule,
   ],
   controllers: [AppController],
 })
