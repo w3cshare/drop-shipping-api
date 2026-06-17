@@ -60,13 +60,22 @@ export class ShopOrderEntity {
   @Column({ name: 'total_tax_set', type: 'text', comment: '税费（JSON 格式存储）' })
   totalTaxSet: string;
 
+  @Column({ name: 'is_active', type: 'tinyint', length: 1, default: 1, comment: '是否启用' })
+  isActive: number;
+
   /** 创建时间 */
-  @Column({ name: 'created_time', type: 'datetime', comment: '创建时间' })
+  @Column({ name: 'created_time', type: 'datetime', default: () => 'CURRENT_TIMESTAMP', comment: '创建时间' })
   createdAt: Date;
 
   /** 更新时间 */
-  @Column({ name: 'modified_time', type: 'datetime', comment: '更新时间' })
+  @Column({ name: 'modified_time', type: 'datetime', default: () => 'CURRENT_TIMESTAMP', comment: '更新时间' })
   updatedAt: Date;
+
+  @Column({ name: 'created_user', type: 'varchar', default: '', length: 255, nullable: true, comment: '创建用户' })
+  createdUser: string | null;
+  
+  @Column({ name: 'modified_user', type: 'varchar', default: '', length: 255, nullable: true, comment: '更新用户' })
+  modifiedUser: string | null;
 
   /** 支付网关 */
   @Column({ name: 'payment_gateway_names', type: 'varchar', length: 100, nullable: true, comment: '支付网关' })

@@ -51,9 +51,18 @@ export class ShopSessionEntity {
   @Column({ name: 'session_type', type: 'varchar', length: 20, default: 'offline', comment: '会话类型' })
   sessionType: 'online' | 'offline';
 
-  @CreateDateColumn({ name: 'created_time', type: 'datetime', comment: '创建时间' })
+  @Column({ name: 'is_active', type: 'tinyint', length: 1, default: 1, comment: '是否启用' })
+  isActive: number;
+
+  @CreateDateColumn({ name: 'created_time', type: 'datetime', default: () => 'CURRENT_TIMESTAMP', comment: '创建时间' })
   createdAt: Date;
 
   @Column({ name: 'modified_time', type: 'datetime', default: () => 'CURRENT_TIMESTAMP', comment: '更新时间' })
   updatedAt: Date;
+
+  @Column({ name: 'created_user', type: 'varchar', default: '', length: 255, nullable: true, comment: '创建用户' })
+  createdUser: string | null;
+  
+  @Column({ name: 'modified_user', type: 'varchar', default: '', length: 255, nullable: true, comment: '更新用户' })
+  modifiedUser: string | null;
 }
