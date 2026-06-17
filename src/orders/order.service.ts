@@ -33,13 +33,13 @@ export class OrderService {
 
       // 检查订单是否已存在
       const existingOrder = await this.orderRepository.findOne({
-        where: { id: orderId, shop },
+        where: { orderId: orderId, shop },
       });
 
       const order = existingOrder || new ShopOrderEntity();
 
       // 基础信息
-      order.id = orderId;
+      order.orderId = orderId;
       order.shop = shop;
       order.name = orderData.name;
       order.orderStatusUrl = orderData.order_status_url;
@@ -101,7 +101,7 @@ export class OrderService {
    */
   async getOrderById(shop: string, orderId: string): Promise<ShopOrderEntity | null> {
     return this.orderRepository.findOne({
-      where: { id: orderId, shop },
+      where: { orderId: orderId, shop },
     });
   }
 
@@ -128,7 +128,7 @@ export class OrderService {
    * 删除订单
    */
   async deleteOrder(shop: string, orderId: string): Promise<void> {
-    await this.orderRepository.delete({ id: orderId, shop });
+    await this.orderRepository.delete({ orderId: orderId, shop });
     this.logger.log(`Order ${orderId} deleted for shop ${shop}`);
   }
 
@@ -243,7 +243,7 @@ export class OrderService {
    * 按订单 ID 获取一条（含 shop 隔离）
    */
   async findOrderById(shop: string, orderId: string): Promise<ShopOrderEntity | null> {
-    return this.orderRepository.findOne({ where: { shop, id: orderId } });
+    return this.orderRepository.findOne({ where: { shop, orderId: orderId } });
   }
 
   /**
@@ -290,6 +290,7 @@ export class OrderService {
   toResponseDto(order: ShopOrderEntity): OrderResponseDto {
     return {
       id: order.id,
+      order_id: order.orderId,
       name: order.name,
       shop: order.shop,
       status: order.status,

@@ -35,13 +35,13 @@ export class ProductService {
 
       // 检查商品是否已存在
       const existing = await this.productRepository.findOne({
-        where: { id: productId, shop },
+        where: { productId: productId, shop },
       });
 
       const product = existing || new ShopProductEntity();
 
       // 基础信息
-      product.id = productId;
+      product.productId = productId;
       product.shop = shop;
       product.title = productData.title || '';
       product.handle = productData.handle || '';
@@ -89,7 +89,7 @@ export class ProductService {
    * 按商品 ID 获取一条（含 shop 隔离）
    */
   async findProductById(shop: string, productId: string): Promise<ShopProductEntity | null> {
-    return this.productRepository.findOne({ where: { shop, id: productId } });
+    return this.productRepository.findOne({ where: { shop, productId: productId } });
   }
 
   /**
@@ -158,7 +158,7 @@ export class ProductService {
    * 删除商品（含 shop 隔离）
    */
   async deleteProduct(shop: string, productId: string): Promise<void> {
-    await this.productRepository.delete({ id: productId, shop });
+    await this.productRepository.delete({ productId: productId, shop });
     this.logger.log(`Product ${productId} deleted for shop ${shop}`);
   }
 
@@ -176,6 +176,7 @@ export class ProductService {
   toResponseDto(product: ShopProductEntity): ProductResponseDto {
     return {
       id: product.id,
+      product_id: product.productId,
       name: product.title,
       shop: product.shop,
       title: product.title,

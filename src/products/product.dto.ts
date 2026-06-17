@@ -31,7 +31,8 @@ export class PaginatedProductsResponseDto {
  * 主要工作：解析 text 字段中存储的 JSON
  */
 export class ProductResponseDto {
-  id: string;
+  id: number;
+  product_id: string;
   name: string;
   shop: string;
   title: string;
