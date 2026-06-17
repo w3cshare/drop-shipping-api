@@ -12,23 +12,19 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBody,
+  ApiBearerAuth,
+  ApiResponse,
+} from '@nestjs/swagger';
 import { UsersService } from '../users/users.service';
 import { UserJwtAuthGuard } from './user-jwt-auth.guard';
 import { signJwt } from '../utils/jwt.util';
-import { toUserResponse } from '../users/user.dto';
+import { RegisterDto, LoginUserDto, toUserResponse } from '../users/user.dto';
 
-interface RegisterDto {
-  username: string;
-  email?: string;
-  password: string;
-  shop?: string;
-}
-
-interface LoginDto {
-  username: string;
-  password: string;
-}
-
+@ApiTags('用户 / 认证控制器')
 @Controller('user/auth')
 export class UserAuthController {
   private readonly logger = new Logger(UserAuthController.name);
@@ -42,10 +38,14 @@ export class UserAuthController {
    * 注册
    */
   @Post('register')
+  @ApiOperation({ summary: 'Register', description: '注册新用户' })
+  @ApiBody({ type: RegisterDto })
+  @ApiResponse({ status: 201, description: '注册成功' })
+  @ApiResponse({ status: 400, description: '参数错误' })
   async register(@Body() body: RegisterDto) {
     try {
       if (!body.username || !body.password) {
-        throw new BadRequestException('username 和 password 必填');
+        throw new BadRequestException('用户名和密码必填');
       }
       if (body.password.length < 6) {
         throw new BadRequestException('密码长度至少 6 位');
@@ -83,10 +83,14 @@ export class UserAuthController {
    * 登录
    */
   @Post('login')
-  async login(@Body() body: LoginDto) {
+  @ApiOperation({ summary: 'Login', description: '登录用户' })
+  @ApiBody({ type: LoginUserDto })
+  @ApiResponse({ status: 200, description: '登录成功' })
+  @ApiResponse({ status: 401, description: '用户名或密码错误' })
+  async login(@Body() body: LoginUserDto) {
     try {
       if (!body.username || !body.password) {
-        throw new BadRequestException('username 和 password 必填');
+        throw new BadRequestException('用户名和密码必填');
       }
 
       const user = await this.usersService.validateCredentials(
@@ -127,7 +131,7 @@ export class UserAuthController {
         },
       };
     } catch (error: any) {
-      this.logger.error(`Login failed: ${error.message}`, error.stack);
+      this.logger.error(`登录失败: ${error.message}`, error.stack);
       if (error instanceof HttpException) throw error;
       throw new HttpException(
         `登录失败: ${error.message}`,
@@ -141,9 +145,14 @@ export class UserAuthController {
    */
   @Get('me')
   @UseGuards(UserJwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Current user', description: '获取当前登录用户信息' })
+  @ApiResponse({ status: 200, description: '成功' })
+  @ApiResponse({ status: 401, description: '未授权' })
   async me(@Req() req: any) {
     return {
       success: true,
+      message: '获取成功',
       data: { user: req.user ? toUserResponse(req.user) : null },
     };
   }

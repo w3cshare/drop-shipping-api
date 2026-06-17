@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { Logger } from '@nestjs/common';
+import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import * as express from 'express';
 
 /**
@@ -16,6 +17,17 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule);
 
+  // Swagger / OpenAPI docs
+  const swaggerConfig = new DocumentBuilder()
+    .setTitle('Drop Shipping API')
+    .setDescription('Drop Shipping API 文档')
+    .setVersion('1.0')
+    .addBearerAuth()
+    .build();
+  const document = SwaggerModule.createDocument(app, swaggerConfig);
+  SwaggerModule.setup('api-docs', app, document);
+
+  // Raw body middleware for Webhook HMAC verification
   // 配置原始请求体中间件
   // 重要：Webhook HMAC 验证需要原始请求体（raw body）
   // 必须在 JSON 解析之前获取原始 Buffer
@@ -45,6 +57,7 @@ async function bootstrap() {
   logger.log(`Application is running on: http://0.0.0.0:${port}`);
   logger.log(`Shopify OAuth callback URL: http://localhost:${port}/auth/callback`);
   logger.log(`Webhook endpoint: http://localhost:${port}/webhooks`);
+  logger.log(`Swagger docs: http://localhost:${port}/api-docs`);
 }
 
 bootstrap();
