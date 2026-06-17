@@ -1,4 +1,4 @@
-import { Entity, Unique, Column, PrimaryGeneratedColumn, PrimaryColumn, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
+import { Entity, Unique, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
 
 /**
  * Shopify 商品实体
