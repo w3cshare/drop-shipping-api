@@ -44,15 +44,15 @@ export class ShopProductEntity {
   @Column({ name: 'tags', type: 'varchar', length: 1000, nullable: true, comment: '标签' })
   tags: string;
 
-  @Column({ name: 'is_active', type: 'tinyint', length: 1, default: 1, comment: '是否启用' })
+  @Column({ name: 'is_active', type: 'tinyint', default: 1, comment: '是否启用' })
   isActive: number;
 
   /** Shopify 创建时间 */
-  @Column({ name: 'created_time', type: 'datetime', default: () => 'CURRENT_TIMESTAMP', comment: 'Shopify 创建时间' })
+  @CreateDateColumn({ name: 'created_time', type: 'datetime', comment: 'Shopify 创建时间' })
   createdAt: Date;
 
   /** Shopify 更新时间 */
-  @Column({ name: 'modified_time', type: 'datetime', default: () => 'CURRENT_TIMESTAMP', comment: 'Shopify 更新时间' })
+  @UpdateDateColumn({ name: 'modified_time', type: 'datetime', comment: 'Shopify 更新时间' })
   updatedAt: Date;
 
   @Column({ name: 'created_user', type: 'varchar', default: '', length: 255, nullable: true, comment: '创建用户' })

@@ -7,34 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UserEntity } from '../database/entities/user.entity';
-import { generateSalt, hashPassword, verifyPassword } from '../utils/password.util';
-
-export interface CreateUserInput {
-  username: string;
-  email?: string;
-  password: string;
-  role?: 'admin' | 'user';
-}
-
-export interface PublicUser {
-  id: string;
-  username: string;
-  email: string | null;
-  role: 'admin' | 'user';
-  status: 'active' | 'inactive' | 'banned';
-  createdAt: Date;
-}
-
-function toPublic(user: UserEntity): PublicUser {
-  return {
-    id: user.id,
-    username: user.username,
-    email: user.email,
-    role: user.role,
-    status: user.status,
-    createdAt: user.createdAt,
-  };
-}
+import { hashPassword, verifyPassword } from '../utils/password.util';
 
 /**
  * 用户 CRUD 服务
@@ -48,9 +21,18 @@ export class UsersService {
     private readonly userRepo: Repository<UserEntity>,
   ) {}
 
-  async create(input: CreateUserInput): Promise<PublicUser> {
+  /**
+   * 创建新用户
+   */
+  async create(input: {
+    username: string;
+    email?: string;
+    password: string;
+    role?: 'admin' | 'user';
+    shop?: string;
+  }): Promise<UserEntity> {
     const existing = await this.userRepo.findOne({
-      where: [{ username: input.username }, { email: input.email }],
+      where: [{ username: input.username }, ...(input.email ? [{ email: input.email }] : [])],
     });
     if (existing) {
       if (existing.username === input.username) {
@@ -61,34 +43,43 @@ export class UsersService {
       }
     }
 
-    const salt = generateSalt();
+    const hashed = await hashPassword(input.password);
+
     const user = this.userRepo.create({
       username: input.username,
       email: input.email || null,
-      passwordSalt: salt,
-      passwordHash: hashPassword(input.password, salt),
-      role: input.role || 'admin',
+      passwordHash: hashed,
+      role: input.role || 'user',
       status: 'active',
+      shop: input.shop || null,
     });
 
     const saved = await this.userRepo.save(user);
     this.logger.log(`Created user: ${saved.username} (${saved.id})`);
-    return toPublic(saved);
+    return saved;
   }
 
+  /**
+   * 按用户名查询（含敏感字段 passwordHash）
+   */
   async findByUsername(username: string): Promise<UserEntity | null> {
     return this.userRepo.findOne({ where: { username } });
   }
 
-  async findById(id: string): Promise<PublicUser | null> {
+  /**
+   * 按 ID 查询（对外暴露，已脱敏）
+   */
+  async findById(id: string): Promise<Omit<UserEntity, 'passwordHash'> | null> {
     const user = await this.userRepo.findOne({ where: { id } });
-    return user ? toPublic(user) : null;
+    if (!user) return null;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { passwordHash, ...rest } = user;
+    return rest;
   }
 
-  async findByIdEntity(id: string): Promise<UserEntity | null> {
-    return this.userRepo.findOne({ where: { id } });
-  }
-
+  /**
+   * 校验用户名+密码
+   */
   async validateCredentials(
     username: string,
     password: string,
@@ -96,18 +87,44 @@ export class UsersService {
     const user = await this.findByUsername(username);
     if (!user) return null;
     if (user.status !== 'active') return null;
-    if (!verifyPassword(password, user.passwordSalt, user.passwordHash)) {
-      return null;
-    }
+    const ok = await verifyPassword(password, user.passwordHash);
+    if (!ok) return null;
     return user;
   }
 
-  async updateStatus(id: string, status: 'active' | 'inactive' | 'banned'): Promise<PublicUser> {
+  /**
+   * 更新登录时间
+   */
+  async updateLastLogin(id: string): Promise<void> {
+    await this.userRepo.update(id, { lastLoginAt: new Date() });
+  }
+
+  /**
+   * 更新状态
+   */
+  async updateStatus(
+    id: string,
+    status: 'active' | 'inactive' | 'banned',
+  ): Promise<Omit<UserEntity, 'passwordHash'>> {
     const user = await this.userRepo.findOne({ where: { id } });
     if (!user) throw new NotFoundException('用户不存在');
     user.status = status;
     user.updatedAt = new Date();
     const saved = await this.userRepo.save(user);
-    return toPublic(saved);
+    const { passwordHash, ...rest } = saved;
+    void passwordHash;
+    return rest;
+  }
+
+  /**
+   * 修改密码
+   */
+  async changePassword(id: string, newPassword: string): Promise<void> {
+    const user = await this.userRepo.findOne({ where: { id } });
+    if (!user) throw new NotFoundException('用户不存在');
+    user.passwordHash = await hashPassword(newPassword);
+    user.updatedAt = new Date();
+    await this.userRepo.save(user);
+    this.logger.log(`Password updated for user: ${user.username} (${user.id})`);
   }
 }

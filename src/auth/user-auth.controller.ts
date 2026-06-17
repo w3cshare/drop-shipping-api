@@ -1,8 +1,8 @@
 import {
   Controller,
   Post,
-  Body,
   Get,
+  Body,
   UseGuards,
   Req,
   Logger,
@@ -15,11 +15,13 @@ import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../users/users.service';
 import { UserJwtAuthGuard } from './user-jwt-auth.guard';
 import { signJwt } from '../utils/jwt.util';
+import { toUserResponse } from '../users/user.dto';
 
 interface RegisterDto {
   username: string;
   email?: string;
   password: string;
+  shop?: string;
 }
 
 interface LoginDto {
@@ -36,6 +38,9 @@ export class UserAuthController {
     private readonly configService: ConfigService,
   ) {}
 
+  /**
+   * 注册
+   */
   @Post('register')
   async register(@Body() body: RegisterDto) {
     try {
@@ -54,6 +59,7 @@ export class UserAuthController {
         email: body.email ? body.email.trim() : undefined,
         password: body.password,
         role: 'user',
+        shop: body.shop ? body.shop.trim() : undefined,
       });
 
       this.logger.log(`User registered: ${user.username}`);
@@ -61,7 +67,7 @@ export class UserAuthController {
       return {
         success: true,
         message: '注册成功',
-        data: { user },
+        data: { user: toUserResponse(user) },
       };
     } catch (error: any) {
       this.logger.error(`Register failed: ${error.message}`, error.stack);
@@ -73,6 +79,9 @@ export class UserAuthController {
     }
   }
 
+  /**
+   * 登录
+   */
   @Post('login')
   async login(@Body() body: LoginDto) {
     try {
@@ -103,6 +112,8 @@ export class UserAuthController {
         ttl,
       );
 
+      await this.usersService.updateLastLogin(user.id);
+
       this.logger.log(`User logged in: ${user.username}`);
 
       return {
@@ -112,13 +123,7 @@ export class UserAuthController {
           token,
           tokenType: 'Bearer',
           expiresIn: ttl,
-          user: {
-            id: user.id,
-            username: user.username,
-            email: user.email,
-            role: user.role,
-            status: user.status,
-          },
+          user: toUserResponse(user),
         },
       };
     } catch (error: any) {
@@ -131,14 +136,15 @@ export class UserAuthController {
     }
   }
 
+  /**
+   * 当前登录用户信息
+   */
   @Get('me')
   @UseGuards(UserJwtAuthGuard)
   async me(@Req() req: any) {
     return {
       success: true,
-      data: {
-        user: req.user,
-      },
+      data: { user: req.user ? toUserResponse(req.user) : null },
     };
   }
 }

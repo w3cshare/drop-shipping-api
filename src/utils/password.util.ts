@@ -1,32 +1,37 @@
-import * as crypto from 'crypto';
+import * as argon2 from 'argon2';
 
 /**
- * 密码工具：使用 Node 内置 crypto 的 PBKDF2 进行哈希与验证
+ * 密码工具：使用 argon2id 进行哈希与验证
+ *
+ * argon2 内部已包含 salt，生成结果格式为:
+ *   $argon2id$v=19$m=65536,t=3,p=4$<base64_salt>$<base64_hash>
+ * 因此数据库只需一个 password_hash 字段即可。
  */
 
-const HASH_ITERATIONS = 100000;
-const HASH_KEYLEN = 64;
-const HASH_DIGEST = 'sha512';
-const SALT_LEN = 32;
-
-export function generateSalt(): string {
-  return crypto.randomBytes(SALT_LEN).toString('hex');
+export async function hashPassword(password: string): Promise<string> {
+  return argon2.hash(password, {
+    type: argon2.argon2id,
+    memoryCost: 2 ** 16,
+    timeCost: 3,
+    parallelism: 4,
+  });
 }
 
-export function hashPassword(password: string, salt: string): string {
-  return crypto
-    .pbkdf2Sync(password, salt, HASH_ITERATIONS, HASH_KEYLEN, HASH_DIGEST)
-    .toString('hex');
-}
-
-export function verifyPassword(
+export async function verifyPassword(
   password: string,
-  salt: string,
   hash: string,
-): boolean {
-  const computed = hashPassword(password, salt);
-  return crypto.timingSafeEqual(
-    Buffer.from(computed, 'hex'),
-    Buffer.from(hash, 'hex'),
-  );
+): Promise<boolean> {
+  try {
+    return await argon2.verify(hash, password);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 检查 hash 是否是老格式（如 PBKDF2 明文 hex），便于将来做迁移判断。
+ * argon2 始终以 $argon2 开头，非此字符串即视为旧格式。
+ */
+export function isArgon2Hash(hash: string | undefined | null): boolean {
+  return typeof hash === 'string' && hash.startsWith('$argon2');
 }
