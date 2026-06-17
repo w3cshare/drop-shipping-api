@@ -11,7 +11,7 @@ import { ShopSessionEntity } from './database/entities/shop-session.entity';
 import { ShopOrderEntity } from './database/entities/order.entity';
 import { ShopProductEntity } from './database/entities/product.entity';
 import { UserEntity } from './database/entities/user.entity';
-import { AdminAuthModule } from './auth/admin-auth.module';
+import { UserAuthModule } from './auth/user-auth.module';
 import { AppController } from './app.controller';
 
 @Module({
@@ -63,7 +63,7 @@ import { AppController } from './app.controller';
     OrdersModule,
     ProductsModule,
     RedisModule,
-    AdminAuthModule,
+    UserAuthModule,
   ],
   controllers: [AppController],
 })

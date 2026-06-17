@@ -13,7 +13,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../users/users.service';
-import { AdminJwtAuthGuard } from './admin-jwt-auth.guard';
+import { UserJwtAuthGuard } from './user-jwt-auth.guard';
 import { signJwt } from '../utils/jwt.util';
 
 interface RegisterDto {
@@ -27,17 +27,9 @@ interface LoginDto {
   password: string;
 }
 
-/**
- * Admin 用户认证控制器
- *
- * 路由：
- *   POST /admin/auth/register   → 注册 admin 用户
- *   POST /admin/auth/login      → 登录并返回 JWT token
- *   GET  /admin/auth/me         → 获取当前登录用户信息（需要 JWT）
- */
-@Controller('admin/auth')
-export class AdminAuthController {
-  private readonly logger = new Logger(AdminAuthController.name);
+@Controller('user/auth')
+export class UserAuthController {
+  private readonly logger = new Logger(UserAuthController.name);
 
   constructor(
     private readonly usersService: UsersService,
@@ -61,10 +53,10 @@ export class AdminAuthController {
         username: body.username.trim(),
         email: body.email ? body.email.trim() : undefined,
         password: body.password,
-        role: 'admin',
+        role: 'user',
       });
 
-      this.logger.log(`Admin user registered: ${user.username}`);
+      this.logger.log(`User registered: ${user.username}`);
 
       return {
         success: true,
@@ -103,7 +95,7 @@ export class AdminAuthController {
           'default-secret-change-me',
         ),
       );
-      const ttl = this.configService.get<number>('JWT_TTL_SECONDS', 60 * 60 * 24); // 默认 24 小时
+      const ttl = this.configService.get<number>('JWT_TTL_SECONDS', 60 * 60 * 24);
 
       const token = signJwt(
         { sub: user.id, username: user.username, role: user.role },
@@ -111,7 +103,7 @@ export class AdminAuthController {
         ttl,
       );
 
-      this.logger.log(`Admin user logged in: ${user.username}`);
+      this.logger.log(`User logged in: ${user.username}`);
 
       return {
         success: true,
@@ -140,7 +132,7 @@ export class AdminAuthController {
   }
 
   @Get('me')
-  @UseGuards(AdminJwtAuthGuard)
+  @UseGuards(UserJwtAuthGuard)
   async me(@Req() req: any) {
     return {
       success: true,

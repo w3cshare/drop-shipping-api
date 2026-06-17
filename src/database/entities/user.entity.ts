@@ -9,14 +9,14 @@ import {
 /**
  * 后台管理员用户实体
  *
- * 用于存储 admin 用户信息，包含：
+ * 用于存储 third party 用户信息，包含：
  * - username: 用户名（唯一）
  * - email: 邮箱（可选唯一）
  * - passwordHash / passwordSalt: 使用 PBKDF2 生成的密码哈希与盐
- * - role: 用户角色（admin / user）
+ * - role: 用户角色（third party / user）
  * - status: 账号状态
  */
-@Entity({ name: 'b_admin_users', comment: '后台管理员用户表' })
+@Entity({ name: 'b_3rd_users', comment: '第三方用户表' })
 export class UserEntity {
   @PrimaryGeneratedColumn('uuid', { comment: '用户 ID' })
   id: string;

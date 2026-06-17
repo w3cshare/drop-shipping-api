@@ -9,15 +9,9 @@ import { ConfigService } from '@nestjs/config';
 import { extractBearerToken, verifyJwt, JwtPayload } from '../utils/jwt.util';
 import { UsersService } from '../users/users.service';
 
-/**
- * Admin JWT 守卫
- *
- * 从 Authorization: Bearer <token> 中提取 JWT，验证签名与过期时间，
- * 并将 user 对象注入到请求对象的 req.user 属性。
- */
 @Injectable()
-export class AdminJwtAuthGuard implements CanActivate {
-  private readonly logger = new Logger(AdminJwtAuthGuard.name);
+export class UserJwtAuthGuard implements CanActivate {
+  private readonly logger = new Logger(UserJwtAuthGuard.name);
 
   constructor(
     private readonly configService: ConfigService,
