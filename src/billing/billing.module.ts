@@ -1,9 +1,9 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { BillingService } from './billing.service';
 import { ShopifyModule } from '../shopify/shopify.module';
 
 @Module({
-  imports: [ShopifyModule],
+  imports: [forwardRef(() => ShopifyModule)],
   providers: [BillingService],
   exports: [BillingService],
 })

@@ -186,7 +186,7 @@ export class ShopifyGraphqlService {
     return this.query(shop, query, { input });
   }
 
-  /** 获取订单列表 */
+  /** 获取订单列表（返回 RESTful 风格） */
   async getOrders(shop: string, first: number = 10): Promise<any> {
     const query = `
       query GetOrders($first: Int!) {
@@ -196,20 +196,11 @@ export class ShopifyGraphqlService {
               id
               name
               createdAt
-              totalPrice
-              totalPriceSet {
-                presentmentMoney {
-                  amount
-                  currencyCode
-                }
-                shopMoney {
-                  amount
-                  currencyCode
-                }
-              }
+              updatedAt
               displayFinancialStatus
               displayFulfillmentStatus
-              lineItems(first: 20) {
+              paymentGatewayNames
+              lineItems(first: 100) {
                 edges {
                   node {
                     id
@@ -219,17 +210,104 @@ export class ShopifyGraphqlService {
                     variant {
                       id
                       title
+                      price
                     }
                   }
                 }
               }
+              shippingAddress {
+                firstName lastName address1 address2 city province country zip phone
+              }
+              billingAddress {
+                firstName lastName address1 address2 city province country zip phone
+              }
             }
           }
-          pageInfo { hasNextPage hasPreviousPage }
+          pageInfo { hasNextPage hasPreviousPage endCursor }
         }
       }
     `;
-    return this.query(shop, query, { first });
+    
+    const result = await this.query(shop, query, { first });
+    
+    const data = result?.data || result;
+    
+    if (!data || !data.orders) {
+      this.logger.warn(`GraphQL query returned no orders data for shop ${shop}`);
+      return {
+        orders: [],
+        page_info: {
+          has_next_page: false,
+          has_previous_page: false,
+          end_cursor: null,
+        },
+        count: 0,
+      };
+    }
+    
+    const orders = data.orders.edges.map((edge: any) => {
+      const node = edge.node;
+      
+      const lineItems = node.lineItems?.edges?.map((liEdge: any) => {
+        const li = liEdge.node;
+        return {
+          id: li.id,
+          title: li.title,
+          quantity: li.quantity,
+          sku: li.sku,
+          variant_id: li.variant?.id,
+          variant_title: li.variant?.title,
+          variant_price: li.variant?.price,
+        };
+      }) || [];
+      
+      const shippingAddress = node.shippingAddress ? {
+        first_name: node.shippingAddress.firstName,
+        last_name: node.shippingAddress.lastName,
+        address1: node.shippingAddress.address1,
+        address2: node.shippingAddress.address2,
+        city: node.shippingAddress.city,
+        province: node.shippingAddress.province,
+        country: node.shippingAddress.country,
+        zip: node.shippingAddress.zip,
+        phone: node.shippingAddress.phone,
+      } : null;
+      
+      const billingAddress = node.billingAddress ? {
+        first_name: node.billingAddress.firstName,
+        last_name: node.billingAddress.lastName,
+        address1: node.billingAddress.address1,
+        address2: node.billingAddress.address2,
+        city: node.billingAddress.city,
+        province: node.billingAddress.province,
+        country: node.billingAddress.country,
+        zip: node.billingAddress.zip,
+        phone: node.billingAddress.phone,
+      } : null;
+      
+      return {
+        id: node.id,
+        name: node.name,
+        created_at: node.createdAt,
+        updated_at: node.updatedAt,
+        financial_status: node.displayFinancialStatus,
+        fulfillment_status: node.displayFulfillmentStatus,
+        payment_gateway_names: node.paymentGatewayNames,
+        line_items: lineItems,
+        shipping_address: shippingAddress,
+        billing_address: billingAddress,
+      };
+    });
+    
+    return {
+      orders,
+      page_info: {
+        has_next_page: data.orders.pageInfo.hasNextPage,
+        has_previous_page: data.orders.pageInfo.hasPreviousPage,
+        end_cursor: data.orders.pageInfo.endCursor,
+      },
+      count: orders.length,
+    };
   }
 
   /** 获取客户列表（含 PII 字段） */

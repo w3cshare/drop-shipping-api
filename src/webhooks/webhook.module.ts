@@ -4,6 +4,7 @@ import { WebhookHmacMiddleware } from './hmac.middleware';
 import { WebhookRegistrationService } from './webhook-registration.service';
 import { ShopifyModule } from '../shopify/shopify.module';
 import { OrdersModule } from '../orders/order.module';
+import { ProductsModule } from '../products/products.module';
 
 /**
  * Webhook 模块
@@ -12,7 +13,7 @@ import { OrdersModule } from '../orders/order.module';
  * 确保所有 Webhook 请求都经过严格的安全验证
  */
 @Module({
-  imports: [forwardRef(() => ShopifyModule), OrdersModule],
+  imports: [forwardRef(() => ShopifyModule), OrdersModule, forwardRef(() => ProductsModule)],
   controllers: [WebhookController],
   providers: [WebhookHmacMiddleware, WebhookRegistrationService],
   exports: [WebhookRegistrationService],
