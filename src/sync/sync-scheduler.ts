@@ -277,6 +277,48 @@ export class SyncScheduler implements OnModuleInit {
   }
 
   /**
+   * 手动触发商品同步
+   */
+  async manualProductSync(shop?: string): Promise<{ shop: string; synced: number }[]> {
+    if (shop) {
+      this.logger.log(`[Scheduler] Manual product sync requested for: ${shop}`);
+      const synced = await this.productSyncService.syncProducts(shop);
+      return [{ shop, synced }];
+    }
+
+    const sessions = await this.sessionRepository.find({
+      where: { sessionType: 'offline' as any },
+      select: ['shop'],
+    });
+
+    this.logger.log(`[Scheduler] Manual product sync requested for all ${sessions.length} shops`);
+
+    const results: { shop: string; synced: number }[] = [];
+    for (const session of sessions) {
+      const synced = await this.productSyncService.syncProducts(session.shop);
+      results.push({ shop: session.shop, synced });
+    }
+
+    return results;
+  }
+
+  /**
+   * 强制商品全量同步（回溯最近 7 天）
+   */
+  async forceFullProductSync(shop: string): Promise<number> {
+    this.logger.log(`[Scheduler] Force full product sync requested for: ${shop}`);
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    return this.productSyncService.forceSyncProducts(shop, since);
+  }
+
+  /**
+   * 获取商品同步状态
+   */
+  async getProductSyncStatus() {
+    return this.productSyncService.getSyncStatus();
+  }
+
+  /**
    * 获取同步状态概览
    */
   async getSyncSummary(): Promise<{
