@@ -6,9 +6,10 @@ import { ProductFiltersDto } from './product.dto';
 import { SyncScheduler } from '../sync/sync-scheduler';
 
 /**
- * 商品管理接口（直接从数据库 b_3rd_products 读取）
+ * 商品管理接口（数据库直读）
  *
- * 路由前缀：/api/admin
+ * 列表/详情查询：ProductService 内部已 LEFT JOIN b_3rd_shops，
+ * 一条 SQL 同时返回商品+店铺信息，避免 N+1 查询。
  * 鉴权：    ShopifyAuthGuard（通过 ?shop=xxx 或 Bearer token 绑定店铺上下文）
  *
  * 接口：
@@ -29,16 +30,7 @@ export class ProductsController {
   ) {}
 
   /**
-   * 商品列表（从数据库直读）
-   *
-   * @param page          页码，默认 1
-   * @param page_size     每页数量，默认 20，最大 100
-   * @param status        按商品状态过滤：active / draft / archived
-   * @param product_type  按商品类型过滤
-   * @param vendor        按供应商过滤
-   * @param start_date    起始日期（YYYY-MM-DD），按 Shopify created_at 过滤
-   * @param end_date      结束日期
-   * @param keyword       关键词搜索（匹配 title / handle / tags）
+   * 商品列表（分页 + 过滤）
    */
   @Get('products')
   async getProducts(
@@ -64,35 +56,31 @@ export class ProductsController {
       if (endDate) filters.endDate = new Date(endDate);
       if (keyword) filters.keyword = keyword;
 
-      const { items, total, page: curPage, pageSize: curPageSize } =
-        await this.productService.findProductsWithPagination(
-          shop,
-          parseInt(page, 10) || 1,
-          parseInt(pageSize, 10) || 20,
-          filters,
-        );
+      const result = await this.productService.findProductsWithPagination(
+        shop,
+        parseInt(page, 10) || 1,
+        parseInt(pageSize, 10) || 20,
+        filters,
+      );
 
-      const totalPages = Math.ceil(total / curPageSize);
+      const totalPages = Math.ceil(result.total / (parseInt(pageSize, 10) || 20));
 
       return {
         success: true,
         shop,
-        data: items,
+        data: result.items,
         pagination: {
-          page: curPage,
-          page_size: curPageSize,
-          total,
+          page: result.page,
+          page_size: result.pageSize,
+          total: result.total,
           total_pages: totalPages,
-          has_next: curPage < totalPages,
-          has_prev: curPage > 1,
+          has_next: result.page < totalPages,
+          has_prev: result.page > 1,
         },
       };
     } catch (error: any) {
       this.logger.error(`[admin] Failed to fetch products: ${error.message}`, error.stack);
-      return {
-        success: false,
-        error: error.message,
-      };
+      return { success: false, error: error.message };
     }
   }
 
@@ -107,15 +95,15 @@ export class ProductsController {
         return { success: false, error: 'Product ID is required' };
       }
 
-      const product = await this.productService.findProductById(shop, productId);
-      if (!product) {
+      const productDto = await this.productService.findProductById(shop, productId);
+      if (!productDto) {
         return { success: false, error: 'Product not found' };
       }
 
       return {
         success: true,
         shop,
-        data: this.productService.toResponseDto(product),
+        data: productDto,
       };
     } catch (error: any) {
       this.logger.error(`[admin] Failed to fetch product detail: ${error.message}`, error.stack);

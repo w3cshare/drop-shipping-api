@@ -35,6 +35,10 @@ export class ProductResponseDto {
   product_id: string;
   name: string;
   shop: string;
+  shop_name: string | null;
+  shop_email: string | null;
+  shop_domain: string | null;
+  shop_currency: string | null;
   title: string;
   handle: string;
   description: string;

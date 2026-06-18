@@ -9,6 +9,7 @@ import {
 import { Request } from 'express';
 import { ShopifyAuthGuard } from '../auth/auth.guard';
 import { ShopifyClientService } from './shopify-client.service';
+import { ShopService } from '../../shop/shop.service';
 
 /**
  * REST API 测试控制器
@@ -23,7 +24,65 @@ import { ShopifyClientService } from './shopify-client.service';
 export class ShopifyClientController {
   private readonly logger = new Logger(ShopifyClientController.name);
 
-  constructor(private readonly clientService: ShopifyClientService) {}
+  constructor(
+    private readonly clientService: ShopifyClientService,
+    private readonly shopService: ShopService,
+  ) {}
+
+  /**
+   * 获取店铺信息（REST）
+   */
+  @Get('shop')
+  async getShop(@Req() req: Request) {
+    try {
+      const shopify = (req as any).shopify;
+      const shop = shopify.shop;
+
+      this.logger.log(`[REST] Fetching shop info for shop: ${shop}`);
+
+      const result = await this.clientService.getShop(shop) as any;
+
+      // REST API 返回结构: { body: { shop: {...} }, ... }
+      const shopInfo = result?.body?.shop || result?.shop || result;
+
+      // 同步写入本地店铺缓存
+      try {
+        await this.shopService.upsertFromShopifyPayload(shop, shopInfo);
+      } catch (cacheError) {
+        this.logger.warn(`[REST] Failed to cache shop info locally: ${cacheError.message}`);
+      }
+
+      // 优先返回本地缓存 + 原始数据合并
+      const cached = await this.shopService.getByShop(shop);
+
+      return {
+        success: true,
+        api: 'REST',
+        shop,
+        data: shopInfo,
+        cached: cached ? {
+          id: cached.id,
+          name: cached.name,
+          email: cached.email,
+          domain: cached.domain,
+          currency_code: cached.currencyCode,
+          country_code: cached.countryCode,
+          province: cached.province,
+          city: cached.city,
+          timezone: cached.ianaTimezone,
+          phone: cached.phone,
+          updated_at: cached.shopifyUpdatedAt,
+        } : null,
+      };
+    } catch (error: any) {
+      this.logger.error(`[REST] Failed to fetch shop info: ${error.message}`, error.stack);
+      return {
+        success: false,
+        api: 'REST',
+        error: error.message,
+      };
+    }
+  }
 
   /**
    * 获取产品列表（REST）

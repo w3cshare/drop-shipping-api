@@ -11,8 +11,7 @@ import { ProductsModule } from '../products/products.module';
 import { SyncModule } from '../sync/sync.module';
 import { PendingEventEntity } from '../database/entities/pending-event.entity';
 import { SyncRecordEntity } from '../database/entities/sync-record.entity';
-
-
+import { ShopModule } from '../shop/shop.module';
 
 /**
  * Webhook 模块
@@ -33,6 +32,7 @@ import { SyncRecordEntity } from '../database/entities/sync-record.entity';
     forwardRef(() => ProductsModule),
     forwardRef(() => SyncModule),
     TypeOrmModule.forFeature([PendingEventEntity, SyncRecordEntity]),
+    ShopModule
   ],
   controllers: [WebhookController],
   providers: [

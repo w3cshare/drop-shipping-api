@@ -16,6 +16,7 @@ import { OrderService } from '../orders/order.service';
 import { WebhookQueueService } from './webhook-queue.service';
 import { SyncScheduler } from '../sync/sync-scheduler';
 import { ProductService } from '../products/product.service';
+import { ShopService } from '../shop/shop.service';
 
 /**
  * Webhook 处理控制器
@@ -45,6 +46,7 @@ export class WebhookController {
     @Inject(forwardRef(() => SyncScheduler))
     private readonly syncScheduler: SyncScheduler,
     private readonly productService: ProductService,
+    private readonly shopService: ShopService,
   ) {}
 
   /**
@@ -209,6 +211,29 @@ export class WebhookController {
     } catch (error: any) {
       this.logger.error(`Failed to enqueue products/delete: ${error.message}`, error.stack);
       return { success: false, queued: false, error: error.message };
+    }
+  }
+
+  /**
+   * 处理店铺信息更新 Webhook
+   *
+   * 当店铺的基础信息（店铺名、邮箱、域名、联系信息）发生变更时触发
+   */
+  @Post('shop/update')
+  @HttpCode(HttpStatus.OK)
+  async handleShopUpdate(@Req() req: Request) {
+    try {
+      const shop = req.headers['x-shopify-shop-domain'] as string;
+      const payload = req.body;
+
+      this.logger.log(`Shop update received: ${shop}`);
+
+      await this.shopService.upsertFromShopifyPayload(shop, payload);
+
+      return { success: true, shop };
+    } catch (error: any) {
+      this.logger.error(`Failed to handle shop/update: ${error.message}`, error.stack);
+      return { success: false, error: error.message };
     }
   }
 

@@ -4,7 +4,6 @@ import { ProductService } from './product.service';
 import { ProductsController } from './products.controller';
 import { ShopProductEntity } from '../database/entities/product.entity';
 import { ShopifyModule } from '../shopify/shopify.module';
-import { BillingModule } from '../billing/billing.module';
 import { SyncModule } from '../sync/sync.module';
 
 /**
@@ -18,7 +17,6 @@ import { SyncModule } from '../sync/sync.module';
   imports: [
     TypeOrmModule.forFeature([ShopProductEntity]),
     forwardRef(() => ShopifyModule),
-    forwardRef(() => BillingModule),
     forwardRef(() => SyncModule),
   ],
   providers: [ProductService],
