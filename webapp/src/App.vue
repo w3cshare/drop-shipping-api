@@ -1,83 +1,469 @@
 <template>
   <div class="app-root">
-    <nav v-if="showNav" class="app-nav">
-      <div class="nav-left">
-        <span class="brand">{{ mode === 'embedded' ? 'Shopify App' : '管理后台' }}</span>
-      </div>
-      <div class="nav-right">
-        <template v-if="mode === 'embedded'">
-          <router-link to="/shop">店铺</router-link>
-          <router-link to="/products">产品</router-link>
-          <router-link to="/orders">订单</router-link>
-        </template>
-        <template v-else>
-          <router-link to="/dashboard">仪表盘</router-link>
-          <router-link to="/shop">店铺</router-link>
-          <router-link to="/products">产品</router-link>
-          <router-link to="/orders">订单</router-link>
-          <button @click="logout" v-if="userLoggedIn">退出</button>
-          <router-link to="/login" v-else>登录</router-link>
-        </template>
-      </div>
-    </nav>
+    <!-- 顶部导航（仅独立应用模式显示） -->
+    <header v-if="mode === 'standalone' && userStore.user" class="navbar">
+      <div class="nav-inner">
+        <router-link to="/dashboard" class="nav-brand">
+          <span class="brand-logo">SA</span>
+          <span class="brand-text">Shopify App · 商家管理后台</span>
+        </router-link>
 
-    <main class="app-main">
-      <router-view />
+        <nav class="nav-links">
+          <router-link to="/dashboard" class="nav-link" active-class="active">
+            <span>仪表盘</span>
+          </router-link>
+          <router-link to="/orders" class="nav-link" active-class="active">
+            <span>订单</span>
+          </router-link>
+          <router-link to="/products" class="nav-link" active-class="active">
+            <span>商品</span>
+          </router-link>
+          <router-link to="/shop" class="nav-link" active-class="active">
+            <span>店铺</span>
+          </router-link>
+        </nav>
+
+        <div class="nav-right">
+          <!-- 店铺切换 -->
+          <div
+            v-if="userStore.shops.length > 0"
+            class="shop-switcher"
+            @click.stop="shopMenuOpen = !shopMenuOpen; userMenuOpen = false"
+          >
+            <div class="shop-current">
+              <div class="shop-name">{{ currentShopName }}</div>
+              <div class="shop-domain">{{ userStore.currentShop?.shop || '未绑定' }}</div>
+            </div>
+            <div v-if="shopMenuOpen" class="shop-menu">
+              <div class="shop-menu-title">切换店铺</div>
+              <div
+                v-for="s in userStore.shops"
+                :key="s.shop"
+                class="shop-menu-item"
+                :class="{ active: userStore.currentShop?.shop === s.shop }"
+                @click.stop="onSwitchShop(s.shop)"
+              >
+                <div class="shop-menu-item-name">{{ s.name || s.shop }}</div>
+                <div class="shop-menu-item-domain">{{ s.shop }}</div>
+              </div>
+            </div>
+          </div>
+          <div v-else class="shop-empty">
+            <span>尚未绑定店铺</span>
+          </div>
+
+          <!-- 用户下拉 -->
+          <div
+            class="user-switcher"
+            @click.stop="userMenuOpen = !userMenuOpen; shopMenuOpen = false"
+          >
+            <button class="user-button" :class="{ active: userMenuOpen }">
+              <div class="avatar">{{ avatarLetter }}</div>
+              <div class="user-meta">
+                <div class="user-name">{{ userStore.user?.username }}</div>
+                <div class="user-role">
+                  {{ userStore.user?.role === 'admin' ? '管理员' : '普通用户' }}
+                </div>
+              </div>
+              <span class="chevron">▾</span>
+            </button>
+            <div v-if="userMenuOpen" class="user-menu">
+              <div class="user-menu-row">
+                <span class="label">用户名</span>
+                <span class="value">{{ userStore.user?.username }}</span>
+              </div>
+              <div class="user-menu-row">
+                <span class="label">邮箱</span>
+                <span class="value">{{ userStore.user?.email || '—' }}</span>
+              </div>
+              <div class="user-menu-row">
+                <span class="label">角色</span>
+                <span class="value">
+                  {{ userStore.user?.role === 'admin' ? '管理员' : '普通用户' }}
+                </span>
+              </div>
+              <div class="user-menu-divider"></div>
+              <button class="user-menu-logout" @click.stop="onLogout">
+                退出登录
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- 主体内容 -->
+    <main class="app-main" :class="{ 'has-nav': mode === 'standalone' && userStore.user }">
+      <router-view v-slot="{ Component }">
+        <component :is="Component" />
+      </router-view>
     </main>
-
-    <footer class="app-footer">
-      <span>© 2026 Shopify App · {{ mode === 'embedded' ? '应用内模式' : '独立应用模式' }}</span>
-    </footer>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
-import { detectMode, isLoggedInStandalone, clearAuth } from '@/shopify/bridge';
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { detectMode } from '@/shopify/bridge';
+import { useUserStore } from '@/stores/user';
 
-const router = useRouter();
-const mode = computed(() => detectMode());
-const userLoggedIn = ref(false);
-const showNav = computed(() => {
-  // 独立应用显示顶部导航；应用内模式 Shop Admin 已经有导航
-  return mode.value === 'standalone';
+const userStore = useUserStore();
+const mode = detectMode();
+
+const shopMenuOpen = ref(false);
+const userMenuOpen = ref(false);
+
+const currentShopName = computed(() => {
+  return userStore.currentShop?.name || userStore.currentShop?.shop || '未绑定';
 });
+
+const avatarLetter = computed(() => {
+  const n = userStore.user?.username || 'U';
+  return n.charAt(0).toUpperCase();
+});
+
+function onSwitchShop(shop: string) {
+  userStore.switchShop(shop);
+  shopMenuOpen.value = false;
+  // 切换后刷新当前页：简单地再导航到同一个路由
+  window.location.reload();
+}
+
+function onLogout() {
+  userMenuOpen.value = false;
+  userStore.logout(true);
+}
+
+// 点击外部关闭下拉
+function onDocumentClick(e: Event) {
+  const target = e.target as HTMLElement;
+  if (!target.closest('.shop-switcher')) shopMenuOpen.value = false;
+  if (!target.closest('.user-switcher')) userMenuOpen.value = false;
+}
+
+function onEsc(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    shopMenuOpen.value = false;
+    userMenuOpen.value = false;
+  }
+}
 
 onMounted(() => {
-  userLoggedIn.value = isLoggedInStandalone();
+  document.addEventListener('click', onDocumentClick);
+  document.addEventListener('keydown', onEsc);
 });
-
-function logout() {
-  clearAuth();
-  userLoggedIn.value = false;
-  router.push('/login');
-}
+onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocumentClick);
+  document.removeEventListener('keydown', onEsc);
+});
 </script>
 
-<style>
-* { box-sizing: border-box; }
-html, body, #app { margin: 0; padding: 0; height: 100%; background: #f6f6f7; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; color: #212326; }
+<style scoped>
+.app-root {
+  min-height: 100vh;
+  background: #f6f6f7;
+}
 
-.app-root { display: flex; flex-direction: column; min-height: 100vh; }
-.app-nav { background: #ffffff; border-bottom: 1px solid #e1e3e5; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; height: 56px; }
-.app-nav .brand { font-weight: 600; font-size: 15px; color: #008060; }
-.app-nav a { color: #212326; text-decoration: none; padding: 0 14px; font-size: 14px; }
-.app-nav a.router-link-exact-active { color: #008060; font-weight: 600; }
-.app-nav button { margin-left: 14px; padding: 6px 14px; border: 1px solid #d9d9d9; background: #fff; border-radius: 4px; cursor: pointer; font-size: 13px; }
-.app-nav button:hover { background: #f0f0f0; }
+.navbar {
+  background: #ffffff;
+  border-bottom: 1px solid #e1e3e5;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
 
-.app-main { flex: 1; padding: 24px; max-width: 1100px; width: 100%; margin: 0 auto; }
+.nav-inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 24px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  gap: 32px;
+}
 
-.app-footer { text-align: center; padding: 20px; font-size: 12px; color: #8a8a8a; border-top: 1px solid #e1e3e5; background: #fff; }
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: #212326;
+  font-weight: 600;
+}
 
-.card { background: #fff; border: 1px solid #e1e3e5; border-radius: 8px; padding: 24px; margin-bottom: 16px; }
-.card h2 { margin: 0 0 16px 0; font-size: 18px; }
-.card h3 { margin: 0 0 12px 0; font-size: 15px; color: #454545; }
+.brand-logo {
+  background: #008060;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 8px;
+  border-radius: 4px;
+  letter-spacing: 1px;
+}
 
-.btn { padding: 8px 16px; background: #008060; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
-.btn:hover { background: #006e51; }
-.btn-secondary { background: #fff; color: #212326; border: 1px solid #d9d9d9; }
-.btn-secondary:hover { background: #f0f0f0; }
-.btn-ghost { background: transparent; color: #008060; border: none; padding: 4px 8px; }
+.brand-text {
+  font-size: 14px;
+  color: #212326;
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+}
+
+.nav-link {
+  padding: 8px 14px;
+  border-radius: 6px;
+  color: #5c5f62;
+  text-decoration: none;
+  font-size: 14px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.nav-link:hover {
+  background: #f1f1f1;
+  color: #212326;
+}
+
+.nav-link.active {
+  background: #e8f5f0;
+  color: #008060;
+  font-weight: 500;
+}
+
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.shop-switcher {
+  position: relative;
+  text-align: right;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+
+.shop-switcher:hover {
+  background: #f1f1f1;
+}
+
+.shop-current {
+  min-width: 140px;
+}
+
+.shop-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #212326;
+}
+
+.shop-domain {
+  font-size: 12px;
+  color: #8a8a8a;
+}
+
+.shop-empty {
+  font-size: 12px;
+  color: #8a8a8a;
+  padding: 6px 10px;
+  border: 1px dashed #d9d9d9;
+  border-radius: 6px;
+}
+
+.shop-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  background: #fff;
+  border: 1px solid #e1e3e5;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  min-width: 220px;
+  padding: 8px 0;
+  z-index: 200;
+}
+
+.shop-menu-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #8a8a8a;
+  padding: 4px 16px 8px;
+  letter-spacing: 0.5px;
+}
+
+.shop-menu-item {
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.shop-menu-item:hover {
+  background: #f6f6f7;
+}
+
+.shop-menu-item.active {
+  background: #e8f5f0;
+}
+
+.shop-menu-item-name {
+  font-size: 13px;
+  color: #212326;
+  font-weight: 500;
+}
+
+.shop-menu-item-domain {
+  font-size: 12px;
+  color: #8a8a8a;
+  margin-top: 2px;
+}
+
+.user-switcher {
+  position: relative;
+}
+
+.user-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 4px 8px 4px 4px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.user-button:hover {
+  background: #f6f6f7;
+  border-color: #e1e3e5;
+}
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #008060;
+  color: #fff;
+  font-weight: 600;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.user-meta {
+  text-align: left;
+  line-height: 1.2;
+}
+
+.user-name {
+  font-size: 13px;
+  color: #212326;
+  font-weight: 500;
+}
+
+.user-role {
+  font-size: 11px;
+  color: #8a8a8a;
+}
+
+.chevron {
+  font-size: 10px;
+  color: #8a8a8a;
+  margin-left: 4px;
+}
+
+.user-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  background: #fff;
+  border: 1px solid #e1e3e5;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  min-width: 240px;
+  padding: 8px 0;
+  z-index: 200;
+}
+
+.user-menu-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  font-size: 13px;
+}
+
+.label {
+  color: #8a8a8a;
+}
+
+.value {
+  color: #212326;
+  font-weight: 500;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-menu-divider {
+  height: 1px;
+  background: #e1e3e5;
+  margin: 6px 0;
+}
+
+.user-menu-logout {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 16px;
+  background: transparent;
+  border: none;
+  color: #d72c0d;
+  font-size: 13px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.15s;
+}
+
+.user-menu-logout:hover {
+  background: #fff1ed;
+}
+
+.app-main {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.app-main.has-nav {
+  padding-top: 24px;
+}
+
+@media (max-width: 800px) {
+  .nav-inner {
+    padding: 0 16px;
+    gap: 12px;
+  }
+  .brand-text {
+    display: none;
+  }
+  .nav-link {
+    padding: 8px 10px;
+    font-size: 13px;
+  }
+  .shop-current {
+    min-width: 80px;
+  }
+  .user-meta {
+    display: none;
+  }
+}
 </style>
