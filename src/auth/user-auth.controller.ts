@@ -22,7 +22,7 @@ import {
 import { UsersService } from '../users/users.service';
 import { UserJwtAuthGuard } from './user-jwt-auth.guard';
 import { signJwt } from '../utils/jwt.util';
-import { RegisterDto, LoginUserDto, toUserResponse } from '../users/user.dto';
+import { CreateUserDto, LoginUserDto, toUserResponse } from '../users/user.dto';
 
 @ApiTags('用户 / 认证控制器')
 @Controller('user/auth')
@@ -39,10 +39,10 @@ export class UserAuthController {
    */
   @Post('register')
   @ApiOperation({ summary: 'Register', description: '注册新用户' })
-  @ApiBody({ type: RegisterDto })
+  @ApiBody({ type: CreateUserDto })
   @ApiResponse({ status: 201, description: '注册成功' })
   @ApiResponse({ status: 400, description: '参数错误' })
-  async register(@Body() body: RegisterDto) {
+  async register(@Body() body: CreateUserDto) {
     try {
       if (!body.username || !body.password) {
         throw new BadRequestException('用户名和密码必填');

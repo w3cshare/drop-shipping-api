@@ -14,7 +14,7 @@ import { ShopModule } from '../shop/shop.module';
  * 确保所有 Webhook 请求都经过严格的安全验证
  */
 @Module({
-  imports: [forwardRef(() => ShopifyModule), OrdersModule, forwardRef(() => ProductsModule), ShopModule],
+  imports: [forwardRef(() => ShopifyModule), forwardRef(() => OrdersModule), forwardRef(() => ProductsModule), ShopModule],
   controllers: [WebhookController],
   providers: [WebhookHmacMiddleware, WebhookRegistrationService],
   exports: [WebhookRegistrationService],
